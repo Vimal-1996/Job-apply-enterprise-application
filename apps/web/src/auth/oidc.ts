@@ -12,9 +12,9 @@ export const oidcConfig: AuthProviderProps = {
   // sessionStorage: tokens die with the tab, and are not shared across tabs.
   userStore: new WebStorageStateStore({ store: window.sessionStorage }),
   automaticSilentRenew: true,
-  // Strip ?code=&state= from the URL after login.
+  // Strip ?code=&state= from the URL; the /callback page then navigates on.
   onSigninCallback: () => {
-    window.history.replaceState({}, document.title, '/');
+    window.history.replaceState({}, document.title, window.location.pathname);
   },
 };
 
