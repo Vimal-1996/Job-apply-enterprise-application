@@ -16,10 +16,19 @@ const admin = () => import('./pages/admin');
 const AdminLayout = lazy(() => admin().then((m) => ({ default: m.AdminLayout })));
 const AdminOverview = lazy(() => admin().then((m) => ({ default: m.Overview })));
 const AdminUsers = lazy(() => admin().then((m) => ({ default: m.Users })));
+const AdminDashboard = lazy(() => admin().then((m) => ({ default: m.AdminDashboard })));
+
+/** Admins manage the platform; job seekers manage their search. */
+function DashboardForRole() {
+  const auth = useAuth();
+  return groupsFromProfile(auth.user?.profile).includes('admin') ? <AdminDashboard /> : <Dashboard />;
+}
 
 function Shell() {
   const auth = useAuth();
-  const isAdmin = groupsFromProfile(auth.user?.profile).includes('admin');
+  const groups = groupsFromProfile(auth.user?.profile);
+  const isAdmin = groups.includes('admin');
+  const isJobSeeker = groups.includes('user');
 
   return (
     <div className="shell">
@@ -31,9 +40,11 @@ function Shell() {
           <NavLink to="/" end>
             Dashboard
           </NavLink>
-          <a aria-disabled title="Coming soon">
-            <span className="label-long">Applications</span> <span className="soon">soon</span>
-          </a>
+          {isJobSeeker && (
+            <a aria-disabled title="Coming soon">
+              <span className="label-long">Applications</span> <span className="soon">soon</span>
+            </a>
+          )}
           {isAdmin && (
             <NavLink to="/admin">
               Admin <span className="soon admin-tag">admin</span>
@@ -81,7 +92,7 @@ export function App() {
     <Routes>
       <Route path="/callback" element={<Callback />} />
       <Route element={<Home />}>
-        <Route index element={<Dashboard />} />
+        <Route index element={<DashboardForRole />} />
       </Route>
       <Route
         element={

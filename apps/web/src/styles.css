@@ -314,3 +314,17 @@ pre.json {
   .admin-link { white-space: nowrap; }
   .admin-link.disabled { display: none; }
 }
+
+/* ---------- admin dashboard ---------- */
+.stat-link { color: var(--text); transition: border-color .15s, transform .1s; }
+.stat-link:hover { border-color: var(--primary); }
+.mini-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.mini-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.mini-list li:first-child { border-top: 0; padding-top: 0; }
+.empty { display: grid; justify-items: center; text-align: center; gap: 8px; padding: 16px 8px 4px; }
+.empty .muted { max-width: 340px; font-size: 14px; }
+.empty .btn { margin-top: 6px; }
+.empty-icon {
+  width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; font-size: 22px;
+  background: var(--surface-2); border: 1px solid var(--border);
+}

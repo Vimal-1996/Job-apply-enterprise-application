@@ -1,42 +1,17 @@
-import { useEffect, useState } from 'react';
-import { useAuth } from 'react-oidc-context';
 import { Link } from 'react-router-dom';
-import { apiGet } from '../../api/client';
-import type { UserPage } from '../../api/types';
 import { Spinner } from '../../components/ui';
 import { ADMIN_NAV } from './adminNav';
+import { useUserStats } from './userStats';
 
-interface Counts {
-  total: string;
-  admins: number;
-  users: number;
-  pending: number;
-}
-
-/** Admin landing page: headline numbers and shortcuts to each section. */
+/** Admin console landing page: headline numbers and shortcuts to each section. */
 export function Overview() {
-  const auth = useAuth();
-  const [counts, setCounts] = useState<Counts | null>(null);
-  const [error, setError] = useState(false);
+  const { stats, error } = useUserStats();
 
-  useEffect(() => {
-    apiGet<UserPage>('/admin/users?filter=all', auth.user?.access_token)
-      .then(({ users, nextToken }) =>
-        setCounts({
-          total: `${users.length}${nextToken ? '+' : ''}`,
-          admins: users.filter((u) => u.groups.includes('admin')).length,
-          users: users.filter((u) => u.groups.includes('user')).length,
-          pending: users.filter((u) => u.status === 'FORCE_CHANGE_PASSWORD').length,
-        }),
-      )
-      .catch(() => setError(true));
-  }, [auth.user?.access_token]);
-
-  const stats = [
-    { label: 'Total accounts', value: counts?.total },
-    { label: 'Admins', value: counts?.admins },
-    { label: 'Users', value: counts?.users },
-    { label: 'Pending invitations', value: counts?.pending },
+  const cards = [
+    { label: 'Total accounts', value: stats && `${stats.total}${stats.more ? '+' : ''}` },
+    { label: 'Admins', value: stats?.admins },
+    { label: 'Users', value: stats?.users },
+    { label: 'Pending invitations', value: stats?.pending },
   ];
   const sections = ADMIN_NAV.flatMap((g) => g.items).filter((i) => i.to !== '/admin');
 
@@ -51,9 +26,9 @@ export function Overview() {
         <div className="banner">⚠️ Could not load account numbers. Check that the API is running.</div>
       ) : (
         <div className="grid">
-          {stats.map((s) => (
+          {cards.map((s) => (
             <div key={s.label} className="card stat">
-              <div className="value">{counts ? s.value : <Spinner small />}</div>
+              <div className="value">{stats ? s.value : <Spinner small />}</div>
               <div className="label">{s.label}</div>
             </div>
           ))}
