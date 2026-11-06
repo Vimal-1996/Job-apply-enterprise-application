@@ -2,10 +2,23 @@ import { useEffect, type ReactNode } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link } from 'react-router-dom';
 import { FullPage, Spinner } from '../components/ui';
+import { NotFound } from '../pages/NotFound';
 import { groupsFromProfile, hasAnyRole, type Role } from './roles';
 
-/** Route guard: sends anonymous users to Cognito and shows 403 for missing roles. */
-export function RequireAuth({ roles = [], children }: { roles?: Role[]; children: ReactNode }) {
+/**
+ * Route guard: sends anonymous users to Cognito. For signed-in users missing a
+ * role it shows 403, or a plain 404 when `hidden` is set so the page's
+ * existence isn't revealed (used for admin pages).
+ */
+export function RequireAuth({
+  roles = [],
+  hidden = false,
+  children,
+}: {
+  roles?: Role[];
+  hidden?: boolean;
+  children: ReactNode;
+}) {
   const auth = useAuth();
   const needsLogin = !auth.isLoading && !auth.error && !auth.isAuthenticated;
 
@@ -22,6 +35,7 @@ export function RequireAuth({ roles = [], children }: { roles?: Role[]; children
     );
   }
   if (!hasAnyRole(groupsFromProfile(auth.user?.profile), roles)) {
+    if (hidden) return <NotFound />;
     return (
       <FullPage>
         <div className="big-code">403</div>
