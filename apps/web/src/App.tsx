@@ -34,7 +34,6 @@ function Shell() {
           <a aria-disabled title="Coming soon">
             <span className="label-long">Applications</span> <span className="soon">soon</span>
           </a>
-          <NavLink to="/account">Account</NavLink>
           {isAdmin && (
             <NavLink to="/admin">
               Admin <span className="soon admin-tag">admin</span>
