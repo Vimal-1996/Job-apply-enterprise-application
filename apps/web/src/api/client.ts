@@ -22,10 +22,13 @@ export class ApiError extends Error {
 }
 
 /** Calls the API with the Cognito *access* token (what the API verifies). */
-async function request<T>(method: string, path: string, accessToken: string | undefined): Promise<T> {
+async function request<T>(method: string, path: string, accessToken: string | undefined, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
   const res = await fetch(`${config.apiUrl}${path}`, {
     method,
-    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { code?: unknown; message?: unknown } | null;
@@ -38,5 +41,6 @@ async function request<T>(method: string, path: string, accessToken: string | un
 }
 
 export const apiGet = <T>(path: string, accessToken: string | undefined) => request<T>('GET', path, accessToken);
-export const apiPost = <T>(path: string, accessToken: string | undefined) => request<T>('POST', path, accessToken);
+export const apiPost = <T>(path: string, accessToken: string | undefined, body?: unknown) =>
+  request<T>('POST', path, accessToken, body);
 export const apiDelete = <T>(path: string, accessToken: string | undefined) => request<T>('DELETE', path, accessToken);

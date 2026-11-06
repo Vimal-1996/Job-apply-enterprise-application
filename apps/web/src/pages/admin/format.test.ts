@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UserSummary } from '../../api/types';
-import { accountStatus, matchesSearch } from './format';
+import { accountStatus, looksLikeEmail, matchesSearch } from './format';
 
 const u = (over: Partial<UserSummary> = {}): UserSummary => ({
   id: 'abc-123',
@@ -38,5 +38,14 @@ describe('matchesSearch', () => {
     expect(matchesSearch(u(), '123')).toBe(true);
     expect(matchesSearch(u(), 'bob')).toBe(false);
     expect(matchesSearch(u(), '  ')).toBe(true);
+  });
+});
+
+describe('looksLikeEmail', () => {
+  it('accepts ordinary addresses, trimmed', () => {
+    expect(looksLikeEmail(' jane+jobs@example.co.uk ')).toBe(true);
+  });
+  it('rejects obvious mistakes', () => {
+    for (const bad of ['', 'jane', 'jane@', 'jane@example', 'ja ne@example.com', 'a@b@c.com']) expect(looksLikeEmail(bad)).toBe(false);
   });
 });

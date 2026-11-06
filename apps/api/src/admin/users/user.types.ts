@@ -33,6 +33,19 @@ export interface UserDirectory extends AccountStatusLookup {
   getUser(id: string): Promise<UserDetail | null>;
   /** Moves the account to `status`; for inactive/deleted also revokes its sessions. */
   setStatus(id: string, status: AccountStatus): Promise<void>;
+  /**
+   * Creates an account with the `user` role. Cognito generates a temporary
+   * password and emails it; the API never sees it. Throws UserExistsError.
+   */
+  createUser(email: string): Promise<UserDetail>;
+  /** Emails a fresh temporary password to a user who hasn't signed in yet. */
+  resendInvite(id: string): Promise<void>;
+}
+
+export class UserExistsError extends Error {
+  constructor() {
+    super('An account with this email already exists');
+  }
 }
 
 export const USER_DIRECTORY = Symbol('USER_DIRECTORY');

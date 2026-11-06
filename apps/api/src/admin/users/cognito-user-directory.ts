@@ -1,5 +1,7 @@
 import {
   AdminAddUserToGroupCommand,
+  AdminCreateUserCommand,
+  AdminDeleteUserCommand,
   AdminGetUserCommand,
   AdminListGroupsForUserCommand,
   AdminRemoveUserFromGroupCommand,
@@ -10,8 +12,9 @@ import {
   ListUsersInGroupCommand,
   UserNotFoundException,
 } from '@aws-sdk/client-cognito-identity-provider';
+import { Logger } from '@nestjs/common';
 import { AccountStatus, Role, STATUS_GROUPS, statusFromGroups } from '../../auth/auth.types';
-import { RoleFilter, UserDetail, UserDirectory, UserPage, UserSummary } from './user.types';
+import { RoleFilter, UserDetail, UserDirectory, UserExistsError, UserPage, UserSummary } from './user.types';
 
 const ROLES: Role[] = ['admin', 'user'];
 /** Every group the directory reads membership of: roles plus status markers. */
@@ -38,6 +41,8 @@ function identityProvider(attrs: AttributeType[] | undefined): string {
 function isNotFound(e: unknown): boolean {
   return e instanceof UserNotFoundException || (e as { name?: string }).name === 'UserNotFoundException';
 }
+
+const NEW_USER_ROLE: Role = 'user';
 
 /** Common shape of ListUsers' UserType and AdminGetUser's response. */
 interface RawUser {
@@ -70,6 +75,8 @@ export function toSummary(u: RawUser, groups: string[]): UserSummary {
  * one call per user, so a page costs 1 + (number of groups) calls.
  */
 export class CognitoUserDirectory implements UserDirectory {
+  private readonly logger = new Logger(CognitoUserDirectory.name);
+
   constructor(
     private readonly client: Sender,
     private readonly userPoolId: string,
@@ -145,5 +152,57 @@ export class CognitoUserDirectory implements UserDirectory {
     // Revoke refresh tokens so the session can't be renewed. Access tokens that
     // are already out are rejected by the API's live status check.
     await this.client.send(new AdminUserGlobalSignOutCommand(base));
+  }
+
+  async createUser(email: string): Promise<UserDetail> {
+    let username: string;
+    try {
+      const res = await this.client.send(
+        new AdminCreateUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: email, // the pool signs in by email; Cognito assigns a UUID username
+          // The admin chose this address and the temporary password is sent
+          // to it, so it is verified; that also enables password recovery.
+          UserAttributes: [
+            { Name: 'email', Value: email },
+            { Name: 'email_verified', Value: 'true' },
+          ],
+          DesiredDeliveryMediums: ['EMAIL'], // Cognito generates the password and emails it
+        }),
+      );
+      username = res.User?.Username ?? email;
+    } catch (e) {
+      if ((e as { name?: string }).name === 'UsernameExistsException') throw new UserExistsError();
+      throw e;
+    }
+
+    try {
+      await this.client.send(
+        new AdminAddUserToGroupCommand({ UserPoolId: this.userPoolId, Username: username, GroupName: NEW_USER_ROLE }),
+      );
+    } catch (e) {
+      // Don't leave an account without a role behind; the invite email is
+      // already sent, but its password won't work once the user is gone.
+      this.logger.error(`role assignment failed for new user ${username}, rolling back: ${(e as Error).message}`);
+      await this.client
+        .send(new AdminDeleteUserCommand({ UserPoolId: this.userPoolId, Username: username }))
+        .catch((d) => this.logger.error(`rollback failed for ${username}: ${(d as Error).message}`));
+      throw e;
+    }
+
+    const created = await this.getUser(username);
+    if (!created) throw new Error(`created user ${username} not found`);
+    return created;
+  }
+
+  async resendInvite(id: string): Promise<void> {
+    await this.client.send(
+      new AdminCreateUserCommand({
+        UserPoolId: this.userPoolId,
+        Username: id,
+        MessageAction: 'RESEND', // new temporary password, new expiry
+        DesiredDeliveryMediums: ['EMAIL'],
+      }),
+    );
   }
 }

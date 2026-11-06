@@ -1,5 +1,7 @@
 import {
   AdminAddUserToGroupCommand,
+  AdminCreateUserCommand,
+  AdminDeleteUserCommand,
   AdminGetUserCommand,
   AdminListGroupsForUserCommand,
   AdminRemoveUserFromGroupCommand,
@@ -185,5 +187,65 @@ describe('CognitoUserDirectory.setStatus', () => {
     const { calls, inputs } = await run('active');
     expect(calls).toEqual([AdminRemoveUserFromGroupCommand.name]);
     expect(inputs[0].GroupName).toBe('inactive');
+  });
+});
+
+describe('CognitoUserDirectory.createUser', () => {
+  const getUser = () => ({ Username: 'new-sub', UserAttributes: [{ Name: 'email', Value: 'n@example.com' }], UserStatus: 'FORCE_CHANGE_PASSWORD', Enabled: true });
+
+  it('creates a verified, emailed user with the user role', async () => {
+    const inputs: Record<string, any> = {};
+    const client = fakeClient({
+      [AdminCreateUserCommand.name]: (i) => ((inputs.create = i), { User: { Username: 'new-sub' } }),
+      [AdminAddUserToGroupCommand.name]: (i) => ((inputs.group = i), {}),
+      [AdminGetUserCommand.name]: getUser,
+      [AdminListGroupsForUserCommand.name]: () => ({ Groups: [{ GroupName: 'user' }] }),
+    });
+    const u = await new CognitoUserDirectory(client as any, 'p').createUser('n@example.com');
+    expect(inputs.create).toEqual({
+      UserPoolId: 'p',
+      Username: 'n@example.com',
+      UserAttributes: [
+        { Name: 'email', Value: 'n@example.com' },
+        { Name: 'email_verified', Value: 'true' },
+      ],
+      DesiredDeliveryMediums: ['EMAIL'],
+    });
+    expect(inputs.create).not.toHaveProperty('TemporaryPassword'); // Cognito generates it
+    expect(inputs.create).not.toHaveProperty('MessageAction'); // i.e. the email is sent
+    expect(inputs.group).toEqual({ UserPoolId: 'p', Username: 'new-sub', GroupName: 'user' });
+    expect(u).toMatchObject({ id: 'new-sub', status: 'FORCE_CHANGE_PASSWORD', groups: ['user'], accountStatus: 'active' });
+  });
+
+  it('maps an existing email to UserExistsError', async () => {
+    const client = fakeClient({
+      [AdminCreateUserCommand.name]: () => {
+        throw Object.assign(new Error('exists'), { name: 'UsernameExistsException' });
+      },
+    });
+    await expect(new CognitoUserDirectory(client as any, 'p').createUser('n@example.com')).rejects.toThrow(
+      'An account with this email already exists',
+    );
+  });
+
+  it('deletes the new account if the role cannot be assigned', async () => {
+    const client = fakeClient({
+      [AdminCreateUserCommand.name]: () => ({ User: { Username: 'new-sub' } }),
+      [AdminAddUserToGroupCommand.name]: () => {
+        throw new Error('throttled');
+      },
+      [AdminDeleteUserCommand.name]: () => ({}),
+    });
+    await expect(new CognitoUserDirectory(client as any, 'p').createUser('n@example.com')).rejects.toThrow('throttled');
+    expect(client.calls).toContain(AdminDeleteUserCommand.name);
+  });
+});
+
+describe('CognitoUserDirectory.resendInvite', () => {
+  it('asks Cognito to resend with a new temporary password', async () => {
+    let input: any;
+    const client = fakeClient({ [AdminCreateUserCommand.name]: (i) => ((input = i), {}) });
+    await new CognitoUserDirectory(client as any, 'p').resendInvite('u1');
+    expect(input).toEqual({ UserPoolId: 'p', Username: 'u1', MessageAction: 'RESEND', DesiredDeliveryMediums: ['EMAIL'] });
   });
 });

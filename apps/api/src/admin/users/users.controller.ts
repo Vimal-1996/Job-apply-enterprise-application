@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   ConflictException,
   Controller,
   Delete,
@@ -16,11 +17,23 @@ import {
 import { AccountStatusCache } from '../../auth/account-status-cache';
 import { ACCOUNT_STATUS, AccountStatus, AuthUser } from '../../auth/auth.types';
 import { CurrentUser, Roles } from '../../auth/decorators';
-import { RoleFilter, USER_DIRECTORY, UserDetail, UserDirectory } from './user.types';
+import { RoleFilter, USER_DIRECTORY, UserDetail, UserDirectory, UserExistsError } from './user.types';
 
 const FILTERS: RoleFilter[] = ['all', 'admin', 'user'];
 const USER_ID = /^[\w-]{1,128}$/; // Cognito usernames here are UUID subs (or Google_<id>)
 const TOKEN = /^[\w+/=.-]{1,4096}$/;
+// Deliberately simple: one @, no spaces, a dot in the domain. Cognito and the
+// invitation email are the real test of the address.
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Normalised email from a request body, or a 400. */
+export function parseEmail(body: unknown): string {
+  const raw = (body as { email?: unknown } | null)?.email;
+  if (typeof raw !== 'string') throw new BadRequestException('email is required');
+  const email = raw.trim().toLowerCase();
+  if (email.length < 5 || email.length > 254 || !EMAIL.test(email)) throw new BadRequestException('Invalid email address');
+  return email;
+}
 
 /** Which status each action moves to, and which statuses it may start from. */
 const TRANSITIONS: Record<string, { to: AccountStatus; from: AccountStatus[] }> = {
@@ -52,6 +65,20 @@ export class UsersController {
     return this.directory.listUsers({ filter: filter as RoleFilter, nextToken });
   }
 
+  /** Adds a user with the `user` role; Cognito emails them a temporary password. */
+  @Post()
+  async create(@CurrentUser() actor: AuthUser, @Body() body: unknown) {
+    const email = parseEmail(body);
+    try {
+      const user = await this.directory.createUser(email);
+      this.audit.log(`actor=${actor.id} action=users.create target=${user.id}`);
+      return user;
+    } catch (e) {
+      if (e instanceof UserExistsError) throw new ConflictException(e.message);
+      throw e;
+    }
+  }
+
   @Get(':id')
   async get(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
     this.audit.log(`actor=${actor.id} action=users.get target=${id}`);
@@ -68,6 +95,18 @@ export class UsersController {
   @HttpCode(200)
   reactivate(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
     return this.change(actor, id, 'reactivate');
+  }
+
+  /** Emails a new temporary password to someone who hasn't signed in yet (e.g. it expired). */
+  @Post(':id/resend-invite')
+  @HttpCode(200)
+  async resendInvite(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    const target = await this.find(id);
+    if (target.accountStatus !== 'active') throw new ConflictException(`Cannot invite a user who is ${target.accountStatus}`);
+    if (target.status !== 'FORCE_CHANGE_PASSWORD') throw new ConflictException('This user has already signed in');
+    await this.directory.resendInvite(id);
+    this.audit.log(`actor=${actor.id} action=users.resend-invite target=${id}`);
+    return { ok: true };
   }
 
   /** Soft delete: the account is kept (marked deleted) so a returning user is told to contact an admin. */

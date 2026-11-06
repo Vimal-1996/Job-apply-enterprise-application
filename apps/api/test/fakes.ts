@@ -1,5 +1,5 @@
 import { AccountStatus } from '../src/auth/auth.types';
-import { UserDetail, UserDirectory } from '../src/admin/users/user.types';
+import { UserDetail, UserDirectory, UserExistsError } from '../src/admin/users/user.types';
 
 export type Claims = { sub: string; client_id: string; 'cognito:groups'?: string[] };
 
@@ -46,6 +46,13 @@ export function fakeDirectory(seed: UserDetail[]) {
     setStatus: jest.fn(async (id: string, status: AccountStatus) => {
       store.get(id)!.accountStatus = status;
     }),
+    createUser: jest.fn(async (email: string) => {
+      if ([...store.values()].some((u) => u.email === email)) throw new UserExistsError();
+      const u = detail(`new-${store.size}`, { email, status: 'FORCE_CHANGE_PASSWORD', emailVerified: true });
+      store.set(u.id, u);
+      return { ...u };
+    }),
+    resendInvite: jest.fn(async (_id: string) => undefined),
   };
   return dir satisfies UserDirectory & { reset: () => void };
 }

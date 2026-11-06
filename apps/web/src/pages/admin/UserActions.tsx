@@ -19,9 +19,11 @@ export function UserActions({ user, onChanged }: { user: UserDetail; onChanged: 
     const path = `/admin/users/${encodeURIComponent(user.id)}`;
     const token = auth.user?.access_token;
     try {
-      const updated =
-        action === 'delete' ? await apiDelete<UserDetail>(path, token) : await apiPost<UserDetail>(`${path}/${action}`, token);
-      onChanged(updated);
+      if (action === 'resend-invite') await apiPost(`${path}/resend-invite`, token);
+      else
+        onChanged(
+          action === 'delete' ? await apiDelete<UserDetail>(path, token) : await apiPost<UserDetail>(`${path}/${action}`, token),
+        );
       setMessage({ ok: true, text: ACTION_COPY[action].done });
       setPending(null);
     } catch (e) {
@@ -45,7 +47,8 @@ export function UserActions({ user, onChanged }: { user: UserDetail; onChanged: 
       ) : pending ? (
         <div className={`confirm ${ACTION_COPY[pending].danger ? 'danger' : ''}`} role="alertdialog" aria-label={ACTION_COPY[pending].label}>
           <strong>
-            {ACTION_COPY[pending].label.replace(' user', '')} {user.email ?? user.id}?
+            {pending === 'resend-invite' ? 'Resend invitation to' : ACTION_COPY[pending].label.replace(' user', '')}{' '}
+            {user.email ?? user.id}?
           </strong>
           <p style={{ margin: 0 }}>{ACTION_COPY[pending].confirm}</p>
           <div className="row" style={{ gap: 8 }}>

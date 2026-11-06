@@ -19,6 +19,7 @@ describe('admin users (e2e)', () => {
     detail('u-user'),
     detail('u-other'),
     detail('u-deleted', { accountStatus: 'deleted' }),
+    detail('u-invited', { status: 'FORCE_CHANGE_PASSWORD' }),
   ]);
 
   beforeAll(async () => {
@@ -38,9 +39,10 @@ describe('admin users (e2e)', () => {
     jest.clearAllMocks();
   });
 
-  const call = (method: 'get' | 'post' | 'delete', path: string, token?: string) => {
-    const r = request(app.getHttpServer())[method](path);
-    return token ? r.set('Authorization', `Bearer ${token}`) : r;
+  const call = (method: 'get' | 'post' | 'delete', path: string, token?: string, body?: object) => {
+    let r = request(app.getHttpServer())[method](path);
+    if (token) r = r.set('Authorization', `Bearer ${token}`);
+    return body ? r.send(body) : r;
   };
   const get = (path: string, token?: string) => call('get', path, token);
 
@@ -122,6 +124,42 @@ describe('admin users (e2e)', () => {
     it('404 for an unknown user, 400 for a malformed id', async () => {
       await call('post', '/admin/users/missing/deactivate', 'admin-token').expect(404);
       await call('delete', '/admin/users/bad%20id', 'admin-token').expect(400);
+    });
+  });
+
+  describe('add user / resend invitation', () => {
+    const add = (body: object, token = 'admin-token') => call('post', '/admin/users', token, body);
+
+    it('creates a user (normalised email) and returns them as invited', async () => {
+      const res = await add({ email: '  New.Person@Example.com ' }).expect(201);
+      expect(directory.createUser).toHaveBeenCalledWith('new.person@example.com');
+      expect(res.body).toMatchObject({ email: 'new.person@example.com', status: 'FORCE_CHANGE_PASSWORD', groups: ['user'] });
+    });
+
+    it('is admin-only, and validates the email', async () => {
+      await add({ email: 'x@example.com' }, 'user-token').expect(403);
+      await add({}).expect(400);
+      await add({ email: 42 }).expect(400);
+      await add({ email: 'not-an-email' }).expect(400);
+      await add({ email: 'a b@example.com' }).expect(400);
+      expect(directory.createUser).not.toHaveBeenCalled();
+    });
+
+    it('409 when the email already has an account (including a deleted one)', async () => {
+      await add({ email: 'u-user@example.com' }).expect(409);
+      await add({ email: 'u-deleted@example.com' }).expect(409);
+    });
+
+    it('resends the invitation to someone who has not signed in yet', async () => {
+      await call('post', '/admin/users/u-invited/resend-invite', 'admin-token').expect(200);
+      expect(directory.resendInvite).toHaveBeenCalledWith('u-invited');
+    });
+
+    it('refuses to resend for a user who has signed in, or is not active (409)', async () => {
+      await call('post', '/admin/users/u-user/resend-invite', 'admin-token').expect(409);
+      await call('post', '/admin/users/u-deleted/resend-invite', 'admin-token').expect(409);
+      await call('post', '/admin/users/u-invited/resend-invite', 'user-token').expect(403);
+      expect(directory.resendInvite).not.toHaveBeenCalled();
     });
   });
 });
