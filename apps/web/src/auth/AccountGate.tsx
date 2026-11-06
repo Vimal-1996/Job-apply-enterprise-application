@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { ACCOUNT_BLOCKED_EVENT, ApiError, apiGet, type BlockedCode } from '../api/client';
 import { FullPage, Spinner } from '../components/ui';
-import { cognitoLogoutUrl } from './oidc';
+import { signOut } from './signOut';
 
 const NOTICE: Record<BlockedCode, { title: string; text: string }> = {
   ACCOUNT_INACTIVE: {
@@ -68,10 +68,8 @@ export function AccountGate({ children }: { children: ReactNode }) {
         </p>
         <button
           className="btn btn-primary"
-          onClick={() => {
-            // End the Cognito session too, so the next sign-in can use another account.
-            window.location.href = cognitoLogoutUrl();
-          }}
+          // End the Cognito session too, so the next sign-in can use another account.
+          onClick={() => void signOut(auth)}
         >
           Back to sign in
         </button>

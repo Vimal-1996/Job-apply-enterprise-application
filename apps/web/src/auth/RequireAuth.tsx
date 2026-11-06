@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { FullPage, Spinner } from '../components/ui';
 import { NotFound } from '../pages/NotFound';
 import { groupsFromProfile, hasAnyRole, type Role } from './roles';
+import { useSigningOut } from './useSigningOut';
 
 /**
  * Route guard: sends anonymous users to Cognito. For signed-in users missing a
@@ -20,17 +21,20 @@ export function RequireAuth({
   children: ReactNode;
 }) {
   const auth = useAuth();
-  const needsLogin = !auth.isLoading && !auth.error && !auth.isAuthenticated;
+  const signingOut = useSigningOut();
+  // Never start a sign-in while signing out: it would race the logout redirect
+  // and, with Cognito's session still alive, sign the user straight back in.
+  const needsLogin = !signingOut && !auth.isLoading && !auth.error && !auth.isAuthenticated;
 
   useEffect(() => {
     if (needsLogin) void auth.signinRedirect({ state: window.location.pathname });
   }, [needsLogin, auth]);
 
-  if (auth.isLoading || needsLogin) {
+  if (signingOut || auth.isLoading || needsLogin) {
     return (
       <FullPage>
         <Spinner />
-        <p className="muted">{needsLogin ? 'Redirecting to sign in…' : 'Loading…'}</p>
+        <p className="muted">{signingOut ? 'Signing out…' : needsLogin ? 'Redirecting to sign in…' : 'Loading…'}</p>
       </FullPage>
     );
   }

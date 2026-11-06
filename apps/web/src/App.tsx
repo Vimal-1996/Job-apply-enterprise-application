@@ -3,6 +3,7 @@ import { useAuth } from 'react-oidc-context';
 import { Navigate, NavLink, Outlet, Route, Routes } from 'react-router-dom';
 import { AccountGate } from './auth/AccountGate';
 import { RequireAuth } from './auth/RequireAuth';
+import { useSigningOut } from './auth/useSigningOut';
 import { groupsFromProfile } from './auth/roles';
 import { Brand, FullPage, Spinner } from './components/ui';
 import { UserMenu } from './components/UserMenu';
@@ -78,7 +79,8 @@ function Shell() {
 /** Signed out → landing page; signed in → dashboard inside the app shell. */
 function Home() {
   const auth = useAuth();
-  if (auth.isLoading) {
+  const signingOut = useSigningOut();
+  if (auth.isLoading || signingOut) {
     return (
       <FullPage>
         <Spinner />
