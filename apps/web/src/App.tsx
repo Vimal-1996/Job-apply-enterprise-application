@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Navigate, NavLink, Outlet, Route, Routes } from 'react-router-dom';
+import { AccountGate } from './auth/AccountGate';
 import { RequireAuth } from './auth/RequireAuth';
 import { groupsFromProfile } from './auth/roles';
 import { Brand, FullPage, Spinner } from './components/ui';
@@ -89,7 +90,8 @@ function Home() {
 
 export function App() {
   return (
-    <Routes>
+    <AccountGate>
+      <Routes>
       <Route path="/callback" element={<Callback />} />
       <Route element={<Home />}>
         <Route index element={<DashboardForRole />} />
@@ -118,6 +120,7 @@ export function App() {
         </Route>
       </Route>
       <Route path="*" element={<NotFound />} />
-    </Routes>
+      </Routes>
+    </AccountGate>
   );
 }

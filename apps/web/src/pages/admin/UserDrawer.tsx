@@ -2,11 +2,21 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { ApiError, apiGet } from '../../api/client';
 import type { UserDetail } from '../../api/types';
+import { UserActions } from './UserActions';
 import { Badge, initials, Spinner } from '../../components/ui';
 import { accountStatus, formatDateTime } from './format';
 
 /** Side panel with one user's full account details. */
-export function UserDrawer({ userId, onClose }: { userId: string; onClose: () => void }) {
+export function UserDrawer({
+  userId,
+  onClose,
+  onChanged,
+}: {
+  userId: string;
+  onClose: () => void;
+  /** Called after an admin action so the list can update the row. */
+  onChanged?: (user: UserDetail) => void;
+}) {
   const auth = useAuth();
   const [user, setUser] = useState<UserDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +121,14 @@ export function UserDrawer({ userId, onClose }: { userId: string; onClose: () =>
                 <dd>{formatDateTime(user.updatedAt)}</dd>
               </dl>
             </section>
+
+            <UserActions
+              user={user}
+              onChanged={(u) => {
+                setUser(u);
+                onChanged?.(u);
+              }}
+            />
           </>
         )}
       </aside>

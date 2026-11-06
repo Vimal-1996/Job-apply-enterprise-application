@@ -1,6 +1,9 @@
 import {
+  AdminAddUserToGroupCommand,
   AdminGetUserCommand,
   AdminListGroupsForUserCommand,
+  AdminRemoveUserFromGroupCommand,
+  AdminUserGlobalSignOutCommand,
   ListUsersCommand,
   ListUsersInGroupCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
@@ -37,7 +40,12 @@ function fakeClient(handlers: Partial<Record<string, (input: any) => unknown>>) 
 describe('CognitoUserDirectory.listUsers', () => {
   const client = fakeClient({
     [ListUsersInGroupCommand.name]: (i) =>
-      i.GroupName === 'admin' ? { Users: [{ Username: 'a1' }] } : { Users: [{ Username: 'u1' }, { Username: 'u2' }] },
+      ({
+        admin: { Users: [{ Username: 'a1' }] },
+        user: { Users: [{ Username: 'u1' }, { Username: 'u2' }] },
+        inactive: { Users: [{ Username: 'u1' }] },
+        deleted: { Users: [{ Username: 'u2' }, { Username: 'n1' }] },
+      })[i.GroupName as string],
     [ListUsersCommand.name]: () => ({
       Users: [user('u2', 'zoe@example.com'), user('a1', 'amy@example.com'), user('u1', 'bob@example.com'), user('n1', 'nora@example.com')],
       PaginationToken: 'next-page',
@@ -63,6 +71,16 @@ describe('CognitoUserDirectory.listUsers', () => {
     });
   });
 
+  it('derives account status from the status groups', async () => {
+    const page = await dir.listUsers({ filter: 'all' });
+    expect(Object.fromEntries(page.users.map((u) => [u.id, u.accountStatus]))).toEqual({
+      a1: 'active',
+      u1: 'inactive',
+      u2: 'deleted',
+      n1: 'deleted',
+    });
+  });
+
   it('filters by role', async () => {
     const admins = await dir.listUsers({ filter: 'admin' });
     expect(admins.users.map((u) => u.id)).toEqual(['a1']);
@@ -73,7 +91,7 @@ describe('CognitoUserDirectory.listUsers', () => {
   it('does not return anything beyond the summary fields', async () => {
     const page = await dir.listUsers({ filter: 'all' });
     expect(Object.keys(page.users[0]).sort()).toEqual(
-      ['createdAt', 'email', 'emailVerified', 'enabled', 'groups', 'id', 'status', 'updatedAt'].sort(),
+      ['accountStatus', 'createdAt', 'email', 'emailVerified', 'enabled', 'groups', 'id', 'status', 'updatedAt'].sort(),
     );
   });
 });
@@ -102,6 +120,7 @@ describe('CognitoUserDirectory.getUser', () => {
       mfaMethods: ['SOFTWARE_TOKEN_MFA'],
       preferredMfa: 'SOFTWARE_TOKEN_MFA',
       identityProvider: 'Google',
+      accountStatus: 'active',
     });
   });
 
@@ -111,5 +130,60 @@ describe('CognitoUserDirectory.getUser', () => {
     };
     const client = fakeClient({ [AdminGetUserCommand.name]: notFound, [AdminListGroupsForUserCommand.name]: notFound });
     expect(await new CognitoUserDirectory(client as any, 'p').getUser('x')).toBeNull();
+  });
+});
+
+describe('CognitoUserDirectory.statusOf', () => {
+  const dirWith = (groups: string[] | 'missing') =>
+    new CognitoUserDirectory(
+      fakeClient({
+        [AdminListGroupsForUserCommand.name]: () => {
+          if (groups === 'missing') throw Object.assign(new Error('nope'), { name: 'UserNotFoundException' });
+          return { Groups: groups.map((GroupName) => ({ GroupName })) };
+        },
+      }) as any,
+      'p',
+    );
+
+  it('reads status from group membership', async () => {
+    expect(await dirWith(['user']).statusOf('x')).toBe('active');
+    expect(await dirWith(['user', 'inactive']).statusOf('x')).toBe('inactive');
+    expect(await dirWith(['inactive', 'deleted']).statusOf('x')).toBe('deleted');
+  });
+
+  it('treats a user missing from the pool as deleted', async () => {
+    expect(await dirWith('missing').statusOf('x')).toBe('deleted');
+  });
+});
+
+describe('CognitoUserDirectory.setStatus', () => {
+  const run = async (status: 'active' | 'inactive' | 'deleted') => {
+    const inputs: any[] = [];
+    const ok = (i: unknown) => (inputs.push(i), {});
+    const client = fakeClient({
+      [AdminAddUserToGroupCommand.name]: ok,
+      [AdminRemoveUserFromGroupCommand.name]: ok,
+      [AdminUserGlobalSignOutCommand.name]: ok,
+    });
+    await new CognitoUserDirectory(client as any, 'p').setStatus('u1', status);
+    return { calls: client.calls, inputs };
+  };
+
+  it('deactivates by adding to the inactive group and signing out everywhere', async () => {
+    const { calls, inputs } = await run('inactive');
+    expect(calls).toEqual([AdminAddUserToGroupCommand.name, AdminUserGlobalSignOutCommand.name]);
+    expect(inputs[0]).toEqual({ UserPoolId: 'p', Username: 'u1', GroupName: 'inactive' });
+  });
+
+  it('soft-deletes by adding to the deleted group and signing out everywhere', async () => {
+    const { calls, inputs } = await run('deleted');
+    expect(calls).toEqual([AdminAddUserToGroupCommand.name, AdminUserGlobalSignOutCommand.name]);
+    expect(inputs[0].GroupName).toBe('deleted');
+  });
+
+  it('reactivates by leaving the inactive group', async () => {
+    const { calls, inputs } = await run('active');
+    expect(calls).toEqual([AdminRemoveUserFromGroupCommand.name]);
+    expect(inputs[0].GroupName).toBe('inactive');
   });
 });

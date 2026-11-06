@@ -196,7 +196,15 @@ export function Users() {
         )}
       </div>
 
-      {selected && <UserDrawer userId={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <UserDrawer
+          userId={selected}
+          onClose={() => setSelected(null)}
+          onChanged={(changed) =>
+            setUsers((prev) => prev.map((u) => (u.id === changed.id ? { ...u, accountStatus: changed.accountStatus } : u)))
+          }
+        />
+      )}
     </>
   );
 }

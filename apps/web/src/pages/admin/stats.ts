@@ -7,19 +7,21 @@ export interface UserStats {
   users: number;
   active: number;
   pending: number;
-  disabled: number;
+  disabled: number; // can't sign in: deactivated, deleted, or disabled in Cognito
 }
 
+const usable = (u: UserSummary) => u.enabled && u.accountStatus === 'active';
+
 export function computeStats(users: UserSummary[], more: boolean): UserStats {
-  const active = users.filter((u) => u.enabled && (u.status === 'CONFIRMED' || u.status === 'EXTERNAL_PROVIDER'));
+  const active = users.filter((u) => usable(u) && (u.status === 'CONFIRMED' || u.status === 'EXTERNAL_PROVIDER'));
   return {
     total: users.length,
     more,
     admins: users.filter((u) => u.groups.includes('admin')).length,
     users: users.filter((u) => u.groups.includes('user')).length,
     active: active.length,
-    pending: users.filter((u) => u.enabled && u.status === 'FORCE_CHANGE_PASSWORD').length,
-    disabled: users.filter((u) => !u.enabled).length,
+    pending: users.filter((u) => usable(u) && u.status === 'FORCE_CHANGE_PASSWORD').length,
+    disabled: users.filter((u) => !usable(u)).length,
   };
 }
 

@@ -3,45 +3,28 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { TOKEN_VERIFIER } from '../src/auth/auth.types';
-import { USER_DIRECTORY, UserDirectory } from '../src/admin/users/user.types';
+import { USER_DIRECTORY } from '../src/admin/users/user.types';
+import { detail, fakeDirectory, fakeVerifier } from './fakes';
 
-const TOKENS: Record<string, { sub: string; client_id: string; 'cognito:groups'?: string[] }> = {
+const TOKENS = {
   'admin-token': { sub: 'u-admin', client_id: 'c', 'cognito:groups': ['admin'] },
   'user-token': { sub: 'u-user', client_id: 'c', 'cognito:groups': ['user'] },
 };
 
-const summary = {
-  id: 'u-user',
-  email: 'user@example.com',
-  emailVerified: true,
-  status: 'CONFIRMED',
-  enabled: true,
-  groups: ['user' as const],
-  createdAt: null,
-  updatedAt: null,
-};
-
 describe('admin users (e2e)', () => {
   let app: INestApplication;
-  const directory = {
-    listUsers: jest.fn<ReturnType<UserDirectory['listUsers']>, Parameters<UserDirectory['listUsers']>>(async () => ({
-      users: [summary],
-      nextToken: null,
-    })),
-    getUser: jest.fn<ReturnType<UserDirectory['getUser']>, Parameters<UserDirectory['getUser']>>(async (id) =>
-      id === 'u-user' ? { ...summary, mfaMethods: [], preferredMfa: null, identityProvider: 'Cognito' } : null,
-    ),
-  };
+  const directory = fakeDirectory([
+    detail('u-admin', { groups: ['admin'] }),
+    detail('u-admin2', { groups: ['admin', 'user'] }),
+    detail('u-user'),
+    detail('u-other'),
+    detail('u-deleted', { accountStatus: 'deleted' }),
+  ]);
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(TOKEN_VERIFIER)
-      .useValue({
-        verify: async (t: string) => {
-          if (!TOKENS[t]) throw new Error('bad token');
-          return TOKENS[t];
-        },
-      })
+      .useValue(fakeVerifier(TOKENS))
       .overrideProvider(USER_DIRECTORY)
       .useValue(directory)
       .compile();
@@ -50,25 +33,32 @@ describe('admin users (e2e)', () => {
   });
 
   afterAll(() => app.close());
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    directory.reset();
+    jest.clearAllMocks();
+  });
 
-  const get = (path: string, token?: string) => {
-    const r = request(app.getHttpServer()).get(path);
+  const call = (method: 'get' | 'post' | 'delete', path: string, token?: string) => {
+    const r = request(app.getHttpServer())[method](path);
     return token ? r.set('Authorization', `Bearer ${token}`) : r;
   };
+  const get = (path: string, token?: string) => call('get', path, token);
 
   it('401 without a token', () => get('/admin/users').expect(401));
 
   it('403 for a normal user, and the directory is never queried', async () => {
     await get('/admin/users', 'user-token').expect(403);
     await get('/admin/users/u-user', 'user-token').expect(403);
+    await call('post', '/admin/users/u-other/deactivate', 'user-token').expect(403);
+    await call('delete', '/admin/users/u-other', 'user-token').expect(403);
     expect(directory.listUsers).not.toHaveBeenCalled();
     expect(directory.getUser).not.toHaveBeenCalled();
+    expect(directory.setStatus).not.toHaveBeenCalled();
   });
 
   it('lists users for an admin', async () => {
     const res = await get('/admin/users?filter=user', 'admin-token').expect(200);
-    expect(res.body).toEqual({ users: [summary], nextToken: null });
+    expect(res.body.users.map((u: { id: string }) => u.id)).toContain('u-user');
     expect(directory.listUsers).toHaveBeenCalledWith({ filter: 'user', nextToken: undefined });
   });
 
@@ -80,5 +70,58 @@ describe('admin users (e2e)', () => {
     const res = await get('/admin/users/u-user', 'admin-token').expect(200);
     expect(res.body.identityProvider).toBe('Cognito');
     await get('/admin/users/missing', 'admin-token').expect(404);
+  });
+
+  describe('deactivate / reactivate / delete', () => {
+    it('deactivates a user, who is then blocked immediately', async () => {
+      await get('/me', 'user-token').expect(200); // warms the status cache
+      const res = await call('post', '/admin/users/u-user/deactivate', 'admin-token').expect(200);
+      expect(res.body.accountStatus).toBe('inactive');
+      expect(directory.setStatus).toHaveBeenCalledWith('u-user', 'inactive');
+      expect((await get('/me', 'user-token').expect(403)).body.code).toBe('ACCOUNT_INACTIVE');
+    });
+
+    it('reactivates an inactive user', async () => {
+      await call('post', '/admin/users/u-user/deactivate', 'admin-token').expect(200);
+      const res = await call('post', '/admin/users/u-user/reactivate', 'admin-token').expect(200);
+      expect(res.body.accountStatus).toBe('active');
+      await get('/me', 'user-token').expect(200);
+    });
+
+    it('deletes (soft) a user, who is then told their account was deleted', async () => {
+      const res = await call('delete', '/admin/users/u-user', 'admin-token').expect(200);
+      expect(res.body.accountStatus).toBe('deleted');
+      expect(directory.setStatus).toHaveBeenCalledWith('u-user', 'deleted');
+      expect((await get('/me', 'user-token').expect(403)).body.code).toBe('ACCOUNT_DELETED');
+    });
+
+    it('can delete an inactive user', async () => {
+      await call('post', '/admin/users/u-other/deactivate', 'admin-token').expect(200);
+      await call('delete', '/admin/users/u-other', 'admin-token').expect(200);
+    });
+
+    it('refuses to touch an admin, including yourself (403)', async () => {
+      await call('post', '/admin/users/u-admin2/deactivate', 'admin-token').expect(403);
+      await call('delete', '/admin/users/u-admin2', 'admin-token').expect(403);
+      await call('delete', '/admin/users/u-admin', 'admin-token').expect(403);
+      expect(directory.setStatus).not.toHaveBeenCalled();
+    });
+
+    it('keeps a deleted user deleted (409), and a repeat delete is a no-op', async () => {
+      await call('post', '/admin/users/u-deleted/deactivate', 'admin-token').expect(409);
+      await call('delete', '/admin/users/u-deleted', 'admin-token').expect(200);
+      expect(directory.setStatus).not.toHaveBeenCalled();
+    });
+
+    it('does not reactivate a deleted user (409) or an active one (no-op)', async () => {
+      await call('post', '/admin/users/u-deleted/reactivate', 'admin-token').expect(409);
+      await call('post', '/admin/users/u-other/reactivate', 'admin-token').expect(200);
+      expect(directory.setStatus).not.toHaveBeenCalled();
+    });
+
+    it('404 for an unknown user, 400 for a malformed id', async () => {
+      await call('post', '/admin/users/missing/deactivate', 'admin-token').expect(404);
+      await call('delete', '/admin/users/bad%20id', 'admin-token').expect(400);
+    });
   });
 });

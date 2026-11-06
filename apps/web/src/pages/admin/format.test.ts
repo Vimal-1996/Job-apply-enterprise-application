@@ -8,6 +8,7 @@ const u = (over: Partial<UserSummary> = {}): UserSummary => ({
   emailVerified: true,
   status: 'CONFIRMED',
   enabled: true,
+  accountStatus: 'active',
   groups: ['user'],
   createdAt: null,
   updatedAt: null,
@@ -21,6 +22,10 @@ describe('accountStatus', () => {
   });
   it('shows Disabled regardless of status', () => {
     expect(accountStatus(u({ enabled: false }))).toEqual({ label: 'Disabled', tone: 'danger' });
+  });
+  it('shows Inactive and Deleted over every Cognito state', () => {
+    expect(accountStatus(u({ accountStatus: 'inactive' }))).toEqual({ label: 'Inactive', tone: 'warning' });
+    expect(accountStatus(u({ accountStatus: 'deleted', enabled: false }))).toEqual({ label: 'Deleted', tone: 'danger' });
   });
   it('falls back to a readable unknown status', () => {
     expect(accountStatus(u({ status: 'SOME_NEW_STATE' })).label).toBe('some new state');

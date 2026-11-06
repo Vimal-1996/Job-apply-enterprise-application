@@ -8,6 +8,7 @@ const u = (id: string, over: Partial<UserSummary> = {}): UserSummary => ({
   emailVerified: true,
   status: 'CONFIRMED',
   enabled: true,
+  accountStatus: 'active',
   groups: ['user'],
   createdAt: null,
   updatedAt: null,
@@ -23,10 +24,12 @@ describe('computeStats', () => {
         u('google', { status: 'EXTERNAL_PROVIDER' }),
         u('invited', { status: 'FORCE_CHANGE_PASSWORD' }),
         u('off', { enabled: false }),
+        u('inactive', { accountStatus: 'inactive' }),
+        u('deleted', { accountStatus: 'deleted' }),
       ],
       true,
     );
-    expect(s).toEqual({ total: 5, more: true, admins: 1, users: 4, active: 3, pending: 1, disabled: 1 });
+    expect(s).toEqual({ total: 7, more: true, admins: 1, users: 6, active: 3, pending: 1, disabled: 3 });
   });
 
   it('does not count a disabled invite as pending', () => {
