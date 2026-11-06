@@ -11,8 +11,11 @@ import { Dashboard } from './pages/Dashboard';
 import { Landing } from './pages/Landing';
 import { NotFound } from './pages/NotFound';
 
-// Admin pages are a separate bundle: normal users never download their code.
-const Users = lazy(() => import('./pages/admin/Users').then((m) => ({ default: m.Users })));
+// The admin console is a separate bundle: normal users never download its code.
+const admin = () => import('./pages/admin');
+const AdminLayout = lazy(() => admin().then((m) => ({ default: m.AdminLayout })));
+const AdminOverview = lazy(() => admin().then((m) => ({ default: m.Overview })));
+const AdminUsers = lazy(() => admin().then((m) => ({ default: m.Users })));
 
 function Shell() {
   const auth = useAuth();
@@ -33,8 +36,8 @@ function Shell() {
           </a>
           <NavLink to="/account">Account</NavLink>
           {isAdmin && (
-            <NavLink to="/admin/users">
-              Users <span className="soon admin-tag">admin</span>
+            <NavLink to="/admin">
+              Admin <span className="soon admin-tag">admin</span>
             </NavLink>
           )}
         </nav>
@@ -98,8 +101,11 @@ export function App() {
           </RequireAuth>
         }
       >
-        <Route path="/admin" element={<Navigate to="/admin/users" replace />} />
-        <Route path="/admin/users" element={<Users />} />
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<AdminOverview />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="*" element={<Navigate to="/admin" replace />} />
+        </Route>
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>
