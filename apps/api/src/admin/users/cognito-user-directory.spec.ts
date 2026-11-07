@@ -249,3 +249,38 @@ describe('CognitoUserDirectory.resendInvite', () => {
     expect(input).toEqual({ UserPoolId: 'p', Username: 'u1', MessageAction: 'RESEND', DesiredDeliveryMediums: ['EMAIL'] });
   });
 });
+
+describe('CognitoUserDirectory.mfaEnabled', () => {
+  const dirWith = (res: object | 'missing') =>
+    new CognitoUserDirectory(
+      fakeClient({
+        [AdminGetUserCommand.name]: () => {
+          if (res === 'missing') throw Object.assign(new Error('nope'), { name: 'UserNotFoundException' });
+          return res;
+        },
+      }) as any,
+      'p',
+    );
+
+  it('is true only when an authenticator app is switched on', async () => {
+    expect(await dirWith({ UserMFASettingList: ['SOFTWARE_TOKEN_MFA'] }).mfaEnabled('x')).toBe(true);
+    expect(await dirWith({ UserMFASettingList: [] }).mfaEnabled('x')).toBe(false);
+    expect(await dirWith({}).mfaEnabled('x')).toBe(false);
+    expect(await dirWith('missing').mfaEnabled('x')).toBe(false);
+  });
+});
+
+describe('CognitoUserDirectory.purgeUser', () => {
+  it('deletes the user, and treats an already-missing user as done', async () => {
+    let input: any;
+    const ok = fakeClient({ [AdminDeleteUserCommand.name]: (i) => ((input = i), {}) });
+    await new CognitoUserDirectory(ok as any, 'p').purgeUser('u1');
+    expect(input).toEqual({ UserPoolId: 'p', Username: 'u1' });
+    const gone = fakeClient({
+      [AdminDeleteUserCommand.name]: () => {
+        throw Object.assign(new Error('nope'), { name: 'UserNotFoundException' });
+      },
+    });
+    await expect(new CognitoUserDirectory(gone as any, 'p').purgeUser('u1')).resolves.toBeUndefined();
+  });
+});

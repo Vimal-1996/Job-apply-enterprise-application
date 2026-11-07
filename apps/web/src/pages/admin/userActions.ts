@@ -38,7 +38,7 @@ export const ACTION_COPY: Record<UserAction, { label: string; confirm: string; d
   delete: {
     label: 'Delete user',
     confirm:
-      'They will be signed out everywhere and lose access permanently. When they try to sign in, they will be told their account was deleted and to contact an administrator. This cannot be undone from the console.',
+      'They will be signed out everywhere and lose access to this account. When they try to sign in, they will be told it was deleted. If they sign up again (or you add them again) with the same email, they start over with a fresh account.',
     done: 'User deleted.',
     danger: true,
   },

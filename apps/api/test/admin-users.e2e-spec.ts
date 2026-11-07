@@ -14,8 +14,8 @@ const TOKENS = {
 describe('admin users (e2e)', () => {
   let app: INestApplication;
   const directory = fakeDirectory([
-    detail('u-admin', { groups: ['admin'] }),
-    detail('u-admin2', { groups: ['admin', 'user'] }),
+    detail('u-admin', { groups: ['admin'], mfaMethods: ['SOFTWARE_TOKEN_MFA'] }),
+    detail('u-admin2', { groups: ['admin', 'user'], mfaMethods: ['SOFTWARE_TOKEN_MFA'] }),
     detail('u-user'),
     detail('u-other'),
     detail('u-deleted', { accountStatus: 'deleted' }),
@@ -145,9 +145,16 @@ describe('admin users (e2e)', () => {
       expect(directory.createUser).not.toHaveBeenCalled();
     });
 
-    it('409 when the email already has an account (including a deleted one)', async () => {
+    it('409 when the email already has a live account', async () => {
       await add({ email: 'u-user@example.com' }).expect(409);
-      await add({ email: 'u-deleted@example.com' }).expect(409);
+      expect(directory.purgeUser).not.toHaveBeenCalled();
+    });
+
+    it('re-adding a deleted user creates a fresh account', async () => {
+      const res = await add({ email: 'u-deleted@example.com' }).expect(201);
+      expect(directory.purgeUser).toHaveBeenCalledWith('u-deleted');
+      expect(res.body).toMatchObject({ email: 'u-deleted@example.com', accountStatus: 'active', status: 'FORCE_CHANGE_PASSWORD' });
+      expect(res.body.id).not.toBe('u-deleted');
     });
 
     it('resends the invitation to someone who has not signed in yet', async () => {

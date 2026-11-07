@@ -41,7 +41,10 @@ export function fakeDirectory(seed: UserDetail[]) {
       users: [...store.values()].map(({ mfaMethods, preferredMfa, identityProvider, ...s }) => s),
       nextToken: null,
     })),
-    getUser: jest.fn(async (id: string) => (store.has(id) ? { ...store.get(id)! } : null)),
+    getUser: jest.fn(async (idOrEmail: string) => {
+      const u = store.get(idOrEmail) ?? [...store.values()].find((x) => x.email === idOrEmail);
+      return u ? { ...u } : null;
+    }),
     statusOf: jest.fn(async (id: string): Promise<AccountStatus> => store.get(id)?.accountStatus ?? 'deleted'),
     setStatus: jest.fn(async (id: string, status: AccountStatus) => {
       store.get(id)!.accountStatus = status;
@@ -53,6 +56,9 @@ export function fakeDirectory(seed: UserDetail[]) {
       return { ...u };
     }),
     resendInvite: jest.fn(async (_id: string) => undefined),
+    purgeUser: jest.fn(async (id: string) => void store.delete(id)),
+    // Admins are seeded with MFA on; tests can switch it off per user.
+    mfaEnabled: jest.fn(async (id: string) => store.get(id)?.mfaMethods.includes('SOFTWARE_TOKEN_MFA') ?? false),
   };
   return dir satisfies UserDirectory & { reset: () => void };
 }

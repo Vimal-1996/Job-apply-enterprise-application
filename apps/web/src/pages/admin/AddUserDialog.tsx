@@ -48,7 +48,7 @@ export function AddUserDialog({ onClose, onCreated }: { onClose: () => void; onC
           <>
             <p role="status" style={{ margin: 0 }}>
               ✅ <strong>{created.email}</strong> has been added. They'll receive an email with a temporary password,
-              valid for 3 days. On first sign-in they choose a new password and set up an authenticator app.
+              valid for 3 days. On first sign-in they choose a new password.
             </p>
             <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
               <button

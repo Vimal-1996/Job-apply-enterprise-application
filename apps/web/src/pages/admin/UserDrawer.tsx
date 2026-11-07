@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { ApiError, apiGet } from '../../api/client';
 import type { UserDetail } from '../../api/types';
+import { requiresMfa } from '../../auth/roles';
 import { UserActions } from './UserActions';
 import { Badge, initials, Spinner } from '../../components/ui';
 import { accountStatus, formatDateTime } from './format';
@@ -103,12 +104,20 @@ export function UserDrawer({
               <dl className="kv">
                 <dt>MFA</dt>
                 <dd>
-                  <Badge tone="success" dot>
-                    Enforced by pool policy
-                  </Badge>
+                  {user.mfaMethods.includes('SOFTWARE_TOKEN_MFA') ? (
+                    <Badge tone="success" dot>
+                      Authenticator app
+                    </Badge>
+                  ) : requiresMfa(user.groups) ? (
+                    <Badge tone="danger" dot>
+                      Not set up: admin access blocked
+                    </Badge>
+                  ) : (
+                    <Badge>Not required</Badge>
+                  )}
                 </dd>
-                <dt>Preferred method</dt>
-                <dd>{user.preferredMfa === 'SOFTWARE_TOKEN_MFA' ? 'Authenticator app' : (user.preferredMfa ?? 'Not set')}</dd>
+                <dt>Policy</dt>
+                <dd>{requiresMfa(user.groups) ? 'Required (administrator)' : 'Password only (user)'}</dd>
               </dl>
             </section>
 

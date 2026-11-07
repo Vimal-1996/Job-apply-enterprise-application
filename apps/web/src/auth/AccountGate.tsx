@@ -11,7 +11,7 @@ const NOTICE: Record<BlockedCode, { title: string; text: string }> = {
   },
   ACCOUNT_DELETED: {
     title: 'Your account has been deleted',
-    text: 'An administrator has deleted your account. Please contact your administrator if you need access.',
+    text: 'An administrator has deleted your account. Please contact your administrator, or sign up again with the same email to start a new account.',
   },
 };
 

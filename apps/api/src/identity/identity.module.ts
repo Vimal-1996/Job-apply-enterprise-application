@@ -1,7 +1,7 @@
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { Global, Module } from '@nestjs/common';
-import { AccountStatusCache } from '../auth/account-status-cache';
-import { ACCOUNT_STATUS } from '../auth/auth.types';
+import { AccountStatusCache, MfaCache } from '../auth/account-status-cache';
+import { ACCOUNT_STATUS, MFA_LOOKUP } from '../auth/auth.types';
 import { CognitoUserDirectory } from '../admin/users/cognito-user-directory';
 import { USER_DIRECTORY, UserDirectory } from '../admin/users/user.types';
 import { loadConfig } from '../config/config';
@@ -29,7 +29,12 @@ import { loadConfig } from '../config/config';
       inject: [USER_DIRECTORY],
       useFactory: (directory: UserDirectory) => new AccountStatusCache(directory),
     },
+    {
+      provide: MFA_LOOKUP,
+      inject: [USER_DIRECTORY],
+      useFactory: (directory: UserDirectory) => new MfaCache(directory),
+    },
   ],
-  exports: [USER_DIRECTORY, ACCOUNT_STATUS],
+  exports: [USER_DIRECTORY, ACCOUNT_STATUS, MFA_LOOKUP],
 })
 export class IdentityModule {}

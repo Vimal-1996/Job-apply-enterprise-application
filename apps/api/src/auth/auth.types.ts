@@ -48,3 +48,17 @@ export function statusFromGroups(groups: readonly string[]): AccountStatus {
   if (groups.includes(STATUS_GROUPS.inactive)) return 'inactive';
   return 'active';
 }
+
+/** Whether an account has an authenticator app (TOTP) switched on, so Cognito challenges it at sign-in. */
+export interface MfaLookup {
+  mfaEnabled(userId: string): Promise<boolean>;
+}
+
+export const MFA_LOOKUP = Symbol('MFA_LOOKUP');
+
+/** Admin routes refuse admins without MFA; the pool only requires MFA from those who enabled it. */
+export const MFA_REQUIRED = {
+  code: 'MFA_REQUIRED',
+  message:
+    'Administrator access requires multi-factor authentication (an authenticator app) on your account. Contact the platform owner to set it up.',
+};

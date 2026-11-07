@@ -1,4 +1,4 @@
-import { AccountStatus, AccountStatusLookup, Role } from '../../auth/auth.types';
+import { AccountStatus, AccountStatusLookup, MfaLookup, Role } from '../../auth/auth.types';
 
 /** What an admin may see about an account. Deliberately excludes tokens, secrets and raw attributes. */
 export interface UserSummary {
@@ -28,7 +28,7 @@ export interface UserPage {
 }
 
 /** Abstracts the identity store so the API can be tested without AWS. */
-export interface UserDirectory extends AccountStatusLookup {
+export interface UserDirectory extends AccountStatusLookup, MfaLookup {
   listUsers(opts: { filter: RoleFilter; nextToken?: string }): Promise<UserPage>;
   getUser(id: string): Promise<UserDetail | null>;
   /** Moves the account to `status`; for inactive/deleted also revokes its sessions. */
@@ -40,6 +40,8 @@ export interface UserDirectory extends AccountStatusLookup {
   createUser(email: string): Promise<UserDetail>;
   /** Emails a fresh temporary password to a user who hasn't signed in yet. */
   resendInvite(id: string): Promise<void>;
+  /** Removes the account from the pool for good (used to replace a soft-deleted one). */
+  purgeUser(id: string): Promise<void>;
 }
 
 export class UserExistsError extends Error {

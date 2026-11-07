@@ -132,6 +132,21 @@ export class CognitoUserDirectory implements UserDirectory {
     }
   }
 
+  /**
+   * True when an authenticator app is switched on for the account. With the
+   * pool's MFA set to OPTIONAL, that is exactly when Cognito asks for a code.
+   * A missing user has no MFA.
+   */
+  async mfaEnabled(id: string): Promise<boolean> {
+    try {
+      const user = await this.client.send(new AdminGetUserCommand({ UserPoolId: this.userPoolId, Username: id }));
+      return (user.UserMFASettingList ?? []).includes('SOFTWARE_TOKEN_MFA');
+    } catch (e) {
+      if (isNotFound(e)) return false;
+      throw e;
+    }
+  }
+
   /** A user removed from the pool outside this app counts as deleted. */
   async statusOf(id: string): Promise<AccountStatus> {
     try {
@@ -193,6 +208,14 @@ export class CognitoUserDirectory implements UserDirectory {
     const created = await this.getUser(username);
     if (!created) throw new Error(`created user ${username} not found`);
     return created;
+  }
+
+  async purgeUser(id: string): Promise<void> {
+    try {
+      await this.client.send(new AdminDeleteUserCommand({ UserPoolId: this.userPoolId, Username: id }));
+    } catch (e) {
+      if (!isNotFound(e)) throw e; // already gone is fine
+    }
   }
 
   async resendInvite(id: string): Promise<void> {
