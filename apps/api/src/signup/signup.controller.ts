@@ -1,7 +1,7 @@
 import { Body, Controller, HttpCode, HttpException, HttpStatus, Inject, Ip, Logger, Post } from '@nestjs/common';
 import { Public } from '../auth/decorators';
 import { parseEmail } from '../common/email';
-import { createFreshAccount, ExistingAccountError } from '../admin/users/create-account';
+import { createFreshAccount, ExistingAccountError, isAdmin } from '../admin/users/create-account';
 import { USER_DIRECTORY, UserDirectory, UserExistsError } from '../admin/users/user.types';
 import { WindowCounter } from './rate-limiter';
 
@@ -64,13 +64,19 @@ export class SignupController {
   }
 
   /**
-   * The email already has a live account (deleted ones were replaced above).
-   * The reply is the same either way. If they never finished signing up
-   * (temporary password unused, maybe expired), send a fresh one, which only
-   * reaches the address owner. Otherwise send nothing: a signed-in user should
-   * sign in, and a deactivated user is told to contact an admin when they do.
+   * The email already has a live account (deleted ones were replaced above),
+   * or belongs to an administrator. The reply is the same either way, so it
+   * doesn't reveal which emails are admins. If a normal user never finished
+   * signing up (temporary password unused, maybe expired), send a fresh one,
+   * which only reaches the address owner. Otherwise send nothing: a signed-in
+   * user should sign in, a deactivated user is told to contact an admin when
+   * they do, and admin accounts are never touched from public sign-up.
    */
   private async existing(email: string, ip: string, user: Awaited<ReturnType<UserDirectory['getUser']>>) {
+    if (user && isAdmin(user)) {
+      this.audit.warn(`admin email used for sign-up target=${user.id} ip=${ip}; nothing sent`);
+      return;
+    }
     if (user && user.accountStatus === 'active' && user.status === 'FORCE_CHANGE_PASSWORD') {
       await this.directory.resendInvite(user.id);
       this.audit.log(`resent target=${user.id} email=${maskEmail(email)} ip=${ip}`);

@@ -145,8 +145,9 @@ describe('admin users (e2e)', () => {
       expect(directory.createUser).not.toHaveBeenCalled();
     });
 
-    it('409 when the email already has a live account', async () => {
+    it('409 when the email already has a live account, including an admin', async () => {
       await add({ email: 'u-user@example.com' }).expect(409);
+      await add({ email: 'u-admin@example.com' }).expect(409);
       expect(directory.purgeUser).not.toHaveBeenCalled();
     });
 
