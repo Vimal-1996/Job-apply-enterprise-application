@@ -4,9 +4,10 @@ import { AuthModule } from './auth/auth.module';
 import { HealthController } from './health/health.controller';
 import { IdentityModule } from './identity/identity.module';
 import { MeController } from './me/me.controller';
+import { SignupModule } from './signup/signup.module';
 
 @Module({
-  imports: [IdentityModule, AuthModule, AdminModule],
+  imports: [IdentityModule, AuthModule, AdminModule, SignupModule],
   controllers: [HealthController, MeController],
 })
 export class AppModule {}

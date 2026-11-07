@@ -11,6 +11,14 @@ describe('loadConfig', () => {
       port: 3000,
       corsOrigins: ['http://localhost:5173'],
       cognito: { userPoolId: 'p', clientId: 'c' },
+      signup: { perIpPerHour: 5, perDay: 30 },
     });
+  });
+
+  it('reads sign-up limits, rejecting nonsense', () => {
+    const base = { COGNITO_USER_POOL_ID: 'p', COGNITO_CLIENT_ID: 'c' };
+    expect(loadConfig({ ...base, SIGNUP_PER_IP_PER_HOUR: '2', SIGNUP_PER_DAY: '10' }).signup).toEqual({ perIpPerHour: 2, perDay: 10 });
+    expect(() => loadConfig({ ...base, SIGNUP_PER_DAY: '0' })).toThrow('positive integer');
+    expect(() => loadConfig({ ...base, SIGNUP_PER_IP_PER_HOUR: 'lots' })).toThrow('positive integer');
   });
 });

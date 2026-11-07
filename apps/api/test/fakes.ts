@@ -41,7 +41,10 @@ export function fakeDirectory(seed: UserDetail[]) {
       users: [...store.values()].map(({ mfaMethods, preferredMfa, identityProvider, ...s }) => s),
       nextToken: null,
     })),
-    getUser: jest.fn(async (id: string) => (store.has(id) ? { ...store.get(id)! } : null)),
+    getUser: jest.fn(async (idOrEmail: string) => {
+      const u = store.get(idOrEmail) ?? [...store.values()].find((x) => x.email === idOrEmail);
+      return u ? { ...u } : null;
+    }),
     statusOf: jest.fn(async (id: string): Promise<AccountStatus> => store.get(id)?.accountStatus ?? 'deleted'),
     setStatus: jest.fn(async (id: string, status: AccountStatus) => {
       store.get(id)!.accountStatus = status;
