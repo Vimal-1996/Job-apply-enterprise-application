@@ -57,10 +57,11 @@ export class JwtAuthGuard implements CanActivate {
     // A valid token is not enough: the account may have been deactivated or
     // deleted since it was issued. Check the token's groups first (free), then
     // the live status. Fail closed if the status can't be determined.
+    const roles = (claims['cognito:groups'] ?? []).filter((g): g is Role => KNOWN_ROLES.includes(g as Role));
     let status: AccountStatus = statusFromGroups(claims['cognito:groups'] ?? []);
     if (status === 'active') {
       try {
-        status = await this.accounts.statusOf(claims.sub);
+        status = await this.accounts.statusOf(claims.sub, roles);
       } catch (e) {
         this.logger.error(`account status lookup failed for ${claims.sub}: ${(e as Error).message}`);
         throw new ServiceUnavailableException('Could not verify account status');
@@ -71,7 +72,7 @@ export class JwtAuthGuard implements CanActivate {
     const user: AuthUser = {
       id: claims.sub,
       clientId: claims.client_id,
-      groups: (claims['cognito:groups'] ?? []).filter((g): g is Role => KNOWN_ROLES.includes(g as Role)),
+      groups: roles,
     };
     request.user = user;
     return true;

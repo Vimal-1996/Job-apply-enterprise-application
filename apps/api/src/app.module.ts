@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common';
 import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
+import { DatabaseModule } from './db/database.module';
 import { HealthController } from './health/health.controller';
 import { IdentityModule } from './identity/identity.module';
 import { MeController } from './me/me.controller';
 import { SignupModule } from './signup/signup.module';
 
 @Module({
-  imports: [IdentityModule, AuthModule, AdminModule, SignupModule],
+  imports: [DatabaseModule, IdentityModule, AuthModule, AdminModule, SignupModule],
   controllers: [HealthController, MeController],
 })
 export class AppModule {}

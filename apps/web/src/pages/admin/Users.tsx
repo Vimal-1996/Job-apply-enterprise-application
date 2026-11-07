@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { apiGet } from '../../api/client';
 import type { UserPage, UserSummary } from '../../api/types';
 import { Badge, initials, Spinner } from '../../components/ui';
-import { accountStatus, formatDate, matchesSearch } from './format';
+import { accountStatus, formatDate } from './format';
 import { AddUserDialog } from './AddUserDialog';
 import { UserDrawer } from './UserDrawer';
 
@@ -20,6 +20,12 @@ export function Users() {
   const token = auth.user?.access_token;
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
+  // The server searches every user (email prefix); wait for typing to pause.
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [nextToken, setNextToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,8 +35,9 @@ export function Users() {
   const [adding, setAdding] = useState(false);
 
   const fetchPage = useCallback(
-    (f: Filter, cursor?: string) => {
+    (f: Filter, q: string, cursor?: string) => {
       const qs = new URLSearchParams({ filter: f });
+      if (q) qs.set('q', q);
       if (cursor) qs.set('nextToken', cursor);
       return apiGet<UserPage>(`/admin/users?${qs}`, token);
     },
@@ -41,7 +48,7 @@ export function Users() {
     setLoading(true);
     setError(null);
     try {
-      const page = await fetchPage(filter);
+      const page = await fetchPage(filter, query);
       setUsers(page.users);
       setNextToken(page.nextToken);
     } catch {
@@ -49,7 +56,7 @@ export function Users() {
     } finally {
       setLoading(false);
     }
-  }, [fetchPage, filter]);
+  }, [fetchPage, filter, query]);
 
   useEffect(() => {
     void load();
@@ -59,7 +66,7 @@ export function Users() {
     if (!nextToken) return;
     setLoadingMore(true);
     try {
-      const page = await fetchPage(filter, nextToken);
+      const page = await fetchPage(filter, query, nextToken);
       setUsers((prev) => [...prev, ...page.users]);
       setNextToken(page.nextToken);
     } catch {
@@ -69,7 +76,7 @@ export function Users() {
     }
   };
 
-  const visible = useMemo(() => users.filter((u) => matchesSearch(u, search)), [users, search]);
+  const visible = users;
 
   return (
     <>
@@ -108,7 +115,7 @@ export function Users() {
           <input
             className="search"
             type="search"
-            placeholder="Search by email or ID"
+            placeholder="Search by email"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             aria-label="Search users"

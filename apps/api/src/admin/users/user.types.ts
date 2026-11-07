@@ -29,7 +29,8 @@ export interface UserPage {
 
 /** Abstracts the identity store so the API can be tested without AWS. */
 export interface UserDirectory extends AccountStatusLookup, MfaLookup {
-  listUsers(opts: { filter: RoleFilter; nextToken?: string }): Promise<UserPage>;
+  /** `search`: case-insensitive email prefix. */
+  listUsers(opts: { filter: RoleFilter; nextToken?: string; search?: string }): Promise<UserPage>;
   getUser(id: string): Promise<UserDetail | null>;
   /** Moves the account to `status`; for inactive/deleted also revokes its sessions. */
   setStatus(id: string, status: AccountStatus): Promise<void>;

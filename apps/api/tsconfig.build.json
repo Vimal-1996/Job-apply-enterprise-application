@@ -2,5 +2,5 @@
   "extends": "./tsconfig.json",
   "compilerOptions": { "rootDir": "./src", "incremental": false },
   "include": ["src"],
-  "exclude": ["**/*.spec.ts", "test"]
+  "exclude": ["**/*.spec.ts", "**/test-pool.ts", "test"]
 }

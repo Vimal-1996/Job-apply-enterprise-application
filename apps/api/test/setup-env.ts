@@ -2,3 +2,5 @@
 // Tests override every provider that would actually talk to AWS.
 process.env.COGNITO_USER_POOL_ID ??= 'us-east-1_test';
 process.env.COGNITO_CLIENT_ID ??= 'test-client';
+// A fresh in-memory Postgres per test app.
+process.env.DATABASE_URL ??= 'memory';

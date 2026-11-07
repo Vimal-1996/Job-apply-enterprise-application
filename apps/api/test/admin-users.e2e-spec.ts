@@ -66,6 +66,12 @@ describe('admin users (e2e)', () => {
 
   it('rejects an unknown filter (400)', () => get('/admin/users?filter=everyone', 'admin-token').expect(400));
 
+  it('passes a search to the directory, and caps its length', async () => {
+    await get('/admin/users?q=bo', 'admin-token').expect(200);
+    expect(directory.listUsers).toHaveBeenCalledWith({ filter: 'all', nextToken: undefined, search: 'bo' });
+    await get(`/admin/users?q=${'a'.repeat(255)}`, 'admin-token').expect(400);
+  });
+
   it('rejects a malformed user id (400)', () => get('/admin/users/bad%20id%3B', 'admin-token').expect(400));
 
   it('returns one user, or 404', async () => {
