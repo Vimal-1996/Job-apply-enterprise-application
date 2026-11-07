@@ -1,0 +1,171 @@
+name: deploy-prod
+
+run-name: deploy-prod | ${{ inputs.target }} | ${{ github.sha }}
+
+# Manual: Actions -> deploy-prod -> Run workflow (on main).
+# Deploys exactly the commit it runs on. The infrastructure (live/prod in
+# Job-apply-infrastructure) must already exist.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What to deploy
+        type: choice
+        options: [all, api, web]
+        default: all
+
+permissions:
+  contents: read
+
+# One production deploy at a time; never cancel one halfway.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  SETTINGS_PATH: /job-apply-prod/deploy
+
+jobs:
+  test:
+    # Production only takes code from main, and only if its tests pass now.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: apps/api/.nvmrc
+      - name: API tests
+        working-directory: apps/api
+        run: npm ci && npm run typecheck && npm test && npm run test:e2e
+      - name: Web tests
+        working-directory: apps/web
+        run: npm ci && npm run typecheck && npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: prod # the AWS role trusts only this environment
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::418272768931:role/job-apply-gha-app-prod
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Read deploy settings
+        id: s
+        run: |
+          get() { aws ssm get-parameter --name "$SETTINGS_PATH/$1" --query Parameter.Value --output text; }
+          {
+            echo "repository=$(get api/repository-url)"
+            echo "cluster=$(get api/cluster)"
+            echo "service=$(get api/service)"
+            echo "family=$(get api/task-family)"
+            echo "container=$(get api/container)"
+            echo "bucket=$(get web/bucket)"
+            echo "distribution=$(get web/distribution-id)"
+            echo "url=$(get web/url)"
+            echo "authority=$(get web/cognito-authority)"
+            echo "client_id=$(get web/cognito-client-id)"
+            echo "domain=$(get web/cognito-domain)"
+            echo "api_url=$(get web/api-url)"
+          } >> "$GITHUB_OUTPUT"
+
+      # ---------- API ----------
+      - name: Build and push the API image
+        if: inputs.target != 'web'
+        id: image
+        env:
+          REPO: ${{ steps.s.outputs.repository }}
+        run: |
+          aws ecr get-login-password | docker login --username AWS --password-stdin "${REPO%%/*}"
+          IMAGE="$REPO:$GITHUB_SHA"
+          # Tags are immutable: re-deploying a commit reuses its image.
+          if aws ecr describe-images --repository-name "${REPO#*/}" --image-ids imageTag="$GITHUB_SHA" >/dev/null 2>&1; then
+            echo "Image for $GITHUB_SHA already exists"
+          else
+            docker build -f apps/api/Dockerfile -t "$IMAGE" .
+            docker push "$IMAGE"
+          fi
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Roll out the API
+        if: inputs.target != 'web'
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          FAMILY: ${{ steps.s.outputs.family }}
+          CONTAINER: ${{ steps.s.outputs.container }}
+          CLUSTER: ${{ steps.s.outputs.cluster }}
+          SERVICE: ${{ steps.s.outputs.service }}
+        run: |
+          # New revision of the current task definition with only the image changed;
+          # everything else (env, secrets, roles) stays as Terraform defined it.
+          aws ecs describe-task-definition --task-definition "$FAMILY" --query taskDefinition \
+            | jq --arg c "$CONTAINER" --arg img "$IMAGE" '
+                (.containerDefinitions[] | select(.name == $c) | .image) = $img
+                | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities,
+                      .registeredAt, .registeredBy, .deregisteredAt)' > taskdef.json
+          ARN=$(aws ecs register-task-definition --cli-input-json file://taskdef.json --query taskDefinition.taskDefinitionArn --output text)
+          echo "Deploying $ARN"
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$ARN" >/dev/null
+          # Waits for the new tasks to be healthy; a failing deploy is rolled back by ECS.
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+          RUNNING=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].taskDefinition' --output text)
+          if [ "$RUNNING" != "$ARN" ]; then echo "::error::Deploy was rolled back (service runs $RUNNING)"; exit 1; fi
+
+      - name: Record the deployed image
+        if: inputs.target != 'web'
+        # Terraform reads this, so infrastructure changes keep the deployed image.
+        run: aws ssm put-parameter --name "/job-apply-prod/api/image-tag" --value "$GITHUB_SHA" --type String --overwrite >/dev/null
+
+      # ---------- Web ----------
+      - uses: actions/setup-node@v4
+        if: inputs.target != 'api'
+        with:
+          node-version-file: apps/web/.nvmrc
+
+      - name: Build the web app
+        if: inputs.target != 'api'
+        working-directory: apps/web
+        env:
+          VITE_COGNITO_AUTHORITY: ${{ steps.s.outputs.authority }}
+          VITE_COGNITO_CLIENT_ID: ${{ steps.s.outputs.client_id }}
+          VITE_COGNITO_DOMAIN: ${{ steps.s.outputs.domain }}
+          VITE_API_URL: ${{ steps.s.outputs.api_url }}
+        run: npm ci && npm run build
+
+      - name: Upload the web app
+        if: inputs.target != 'api'
+        working-directory: apps/web/dist
+        env:
+          BUCKET: ${{ steps.s.outputs.bucket }}
+          DISTRIBUTION: ${{ steps.s.outputs.distribution }}
+        run: |
+          # Hashed assets never change: cache for a year. Everything else
+          # (index.html, icons) is revalidated so a deploy shows up at once.
+          aws s3 sync assets "s3://$BUCKET/assets" --cache-control "public, max-age=31536000, immutable"
+          aws s3 sync . "s3://$BUCKET" --exclude "assets/*" --cache-control "no-cache" --delete
+          aws s3 sync assets "s3://$BUCKET/assets" --delete --cache-control "public, max-age=31536000, immutable"
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths "/*" >/dev/null
+
+      # ---------- Check ----------
+      - name: Smoke test
+        env:
+          URL: ${{ steps.s.outputs.url }}
+        run: |
+          for i in $(seq 1 20); do
+            if [ "$(curl -s "$URL/api/health")" = '{"status":"ok"}' ]; then break; fi
+            sleep 6
+          done
+          set -x
+          test "$(curl -s "$URL/api/health")" = '{"status":"ok"}'
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/me")" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/")" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/admin/users")" = 200   # app route -> index.html
+          echo "Deployed $GITHUB_SHA to $URL" >> "$GITHUB_STEP_SUMMARY"

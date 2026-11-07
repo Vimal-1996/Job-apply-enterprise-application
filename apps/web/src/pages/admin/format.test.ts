@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UserSummary } from '../../api/types';
-import { accountStatus, looksLikeEmail, matchesSearch } from './format';
+import { accountStatus, looksLikeEmail } from './format';
 
 const u = (over: Partial<UserSummary> = {}): UserSummary => ({
   id: 'abc-123',
@@ -29,15 +29,6 @@ describe('accountStatus', () => {
   });
   it('falls back to a readable unknown status', () => {
     expect(accountStatus(u({ status: 'SOME_NEW_STATE' })).label).toBe('some new state');
-  });
-});
-
-describe('matchesSearch', () => {
-  it('matches email case-insensitively, or id', () => {
-    expect(matchesSearch(u(), 'jane@')).toBe(true);
-    expect(matchesSearch(u(), '123')).toBe(true);
-    expect(matchesSearch(u(), 'bob')).toBe(false);
-    expect(matchesSearch(u(), '  ')).toBe(true);
   });
 });
 

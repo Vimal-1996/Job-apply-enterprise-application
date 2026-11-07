@@ -13,10 +13,11 @@ export class TtlCache<T> {
     private readonly now: () => number = Date.now,
   ) {}
 
-  async get(key: string): Promise<T> {
+  /** `load` overrides the default loader for this miss (e.g. to pass extra context). */
+  async get(key: string, load: (key: string) => Promise<T> = this.load): Promise<T> {
     const hit = this.entries.get(key);
     if (hit && hit.expires > this.now()) return hit.value;
-    const value = await this.load(key);
+    const value = await load(key);
     if (this.entries.size >= MAX_ENTRIES) this.entries.clear();
     this.entries.set(key, { value, expires: this.now() + this.ttlMs });
     return value;

@@ -48,11 +48,13 @@ export class UsersController {
     @CurrentUser() actor: AuthUser,
     @Query('filter') filter = 'all',
     @Query('nextToken') nextToken?: string,
+    @Query('q') q?: string,
   ) {
     if (!FILTERS.includes(filter as RoleFilter)) throw new BadRequestException(`filter must be one of ${FILTERS.join(', ')}`);
     if (nextToken !== undefined && !TOKEN.test(nextToken)) throw new BadRequestException('Invalid nextToken');
+    if (q !== undefined && q.length > 254) throw new BadRequestException('Search is too long');
     this.audit.log(`actor=${actor.id} action=users.list filter=${filter}`);
-    return this.directory.listUsers({ filter: filter as RoleFilter, nextToken });
+    return this.directory.listUsers({ filter: filter as RoleFilter, nextToken, search: q });
   }
 
   /**

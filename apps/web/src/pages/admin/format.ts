@@ -28,10 +28,4 @@ export function formatDateTime(iso: string | null): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-export function matchesSearch(u: UserSummary, q: string): boolean {
-  const needle = q.trim().toLowerCase();
-  if (!needle) return true;
-  return (u.email ?? '').toLowerCase().includes(needle) || u.id.toLowerCase().includes(needle);
-}
-
 export { looksLikeEmail } from '../../lib/email';
