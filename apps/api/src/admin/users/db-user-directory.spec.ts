@@ -1,5 +1,5 @@
 import { migrate } from '../../db/migrate';
-import { memoryPool } from '../../db/pg-mem';
+import { closeTestPools, testPool } from '../../db/test-pool';
 import { PgUserStore } from '../../db/user-store';
 import { DbUserDirectory } from './db-user-directory';
 import { UserDetail, UserExistsError } from './user.types';
@@ -41,12 +41,14 @@ function fakeCognito(users: UserDetail[] = []) {
 }
 
 async function setup(cognitoUsers: UserDetail[] = []) {
-  const db = memoryPool();
+  const db = await testPool();
   await migrate(db);
   const store = new PgUserStore(db);
   const cognito = fakeCognito(cognitoUsers);
   return { store, cognito, dir: new DbUserDirectory(store, cognito) };
 }
+
+afterAll(closeTestPools);
 
 describe('DbUserDirectory', () => {
   it('creates a user in Cognito and the table, listed without any Cognito call', async () => {

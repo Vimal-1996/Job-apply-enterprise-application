@@ -4,10 +4,10 @@ run-name: api-ci | ${{ github.event.pull_request.title || github.ref_name }}
 
 on:
   pull_request:
-    paths: ["apps/api/**", ".github/workflows/api-ci.yml"]
+    paths: ["apps/api/**", "db/migrations/**", ".dockerignore", ".github/workflows/api-ci.yml"]
   push:
     branches: [main]
-    paths: ["apps/api/**", ".github/workflows/api-ci.yml"]
+    paths: ["apps/api/**", "db/migrations/**", ".dockerignore", ".github/workflows/api-ci.yml"]
 
 permissions:
   contents: read
@@ -18,6 +18,18 @@ jobs:
     defaults:
       run:
         working-directory: apps/api
+    services:
+      # Real Postgres, so database code is tested beyond the in-memory emulator.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jobapply
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/jobapply
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,3 +44,49 @@ jobs:
       - run: npm run build
       - name: Dependency audit (high+)
         run: npm audit --audit-level=high --omit=dev
+
+  image:
+    # Build the production image and run it against a real Postgres.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jobapply
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -f apps/api/Dockerfile -t job-apply-api:ci .
+      - name: Image contains no dev dependencies and runs as non-root
+        run: |
+          docker run --rm --entrypoint sh job-apply-api:ci -c 'test ! -d node_modules/pg-mem && test ! -d node_modules/jest && test "$(id -un)" = node'
+      - name: Start the image against Postgres
+        run: |
+          docker run -d --name api --network host \
+            -e COGNITO_USER_POOL_ID=us-east-1_ci -e COGNITO_CLIENT_ID=ci \
+            -e DB_HOST=localhost -e DB_NAME=jobapply -e DB_USER=postgres -e DB_PASSWORD=postgres -e DB_SSL=disable \
+            -e API_BASE_PATH=/api -e TRUST_PROXY_HOPS=2 \
+            job-apply-api:ci
+          for i in $(seq 1 30); do curl -sf http://localhost:3000/api/health && exit 0; sleep 1; done
+          docker logs api; exit 1
+      - name: Smoke test
+        run: |
+          set -x
+          test "$(curl -s http://localhost:3000/api/health)" = '{"status":"ok"}'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/me)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/health)" = 404   # only under /api
+          test "$(PGPASSWORD=postgres psql -h localhost -U postgres -d jobapply -tAc 'SELECT version FROM schema_migrations')" = 001_app_user.sql
+      - name: Container logs
+        if: always()
+        run: docker logs api || true
+      - name: Scan image for critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: job-apply-api:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

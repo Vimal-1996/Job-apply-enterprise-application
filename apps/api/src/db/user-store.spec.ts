@@ -1,10 +1,12 @@
 import { migrate } from './migrate';
-import { memoryPool } from './pg-mem';
+import { closeTestPools, testPool } from './test-pool';
 import { decodeCursor, encodeCursor, PgUserStore } from './user-store';
+
+afterAll(closeTestPools);
 
 describe('migrate', () => {
   it('applies the migrations once, and is a no-op the second time', async () => {
-    const pool = memoryPool();
+    const pool = await testPool();
     expect(await migrate(pool)).toEqual(['001_app_user.sql']);
     expect(await migrate(pool)).toEqual([]);
   });
@@ -14,7 +16,7 @@ describe('PgUserStore', () => {
   let store: PgUserStore;
 
   beforeEach(async () => {
-    const pool = memoryPool();
+    const pool = await testPool();
     await migrate(pool);
     store = new PgUserStore(pool);
   });

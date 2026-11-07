@@ -11,6 +11,8 @@ describe('loadConfig', () => {
     expect(c).toEqual({
       port: 3000,
       corsOrigins: ['http://localhost:5173'],
+      basePath: '',
+      trustProxyHops: 0,
       cognito: { userPoolId: 'p', clientId: 'c' },
       signup: { perIpPerHour: 5, perDay: 30 },
       database: { kind: 'memory' },
@@ -22,6 +24,12 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...base, SIGNUP_PER_IP_PER_HOUR: '2', SIGNUP_PER_DAY: '10' }).signup).toEqual({ perIpPerHour: 2, perDay: 10 });
     expect(() => loadConfig({ ...base, SIGNUP_PER_DAY: '0' })).toThrow('positive integer');
     expect(() => loadConfig({ ...base, SIGNUP_PER_IP_PER_HOUR: 'lots' })).toThrow('positive integer');
+  });
+
+  it('reads the base path and proxy hops', () => {
+    const base = { COGNITO_USER_POOL_ID: 'p', COGNITO_CLIENT_ID: 'c', DATABASE_URL: 'memory' };
+    expect(loadConfig({ ...base, API_BASE_PATH: '/api/', TRUST_PROXY_HOPS: '2' })).toMatchObject({ basePath: 'api', trustProxyHops: 2 });
+    expect(() => loadConfig({ ...base, API_BASE_PATH: '/a b' })).toThrow('Invalid API_BASE_PATH');
   });
 
   describe('database', () => {

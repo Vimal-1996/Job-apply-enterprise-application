@@ -1,6 +1,10 @@
 export interface AppConfig {
   port: number;
   corsOrigins: string[];
+  /** Path prefix for every route, e.g. /api when CloudFront forwards /api/* here. Empty = none. */
+  basePath: string;
+  /** Proxies in front of the API (CloudFront + load balancer = 2), so client IPs are read correctly. */
+  trustProxyHops: number;
   cognito: { userPoolId: string; clientId: string };
   /** Public sign-up sends email, so it is rate limited. Cognito's default sender allows 50 emails/day. */
   signup: { perIpPerHour: number; perDay: number };
@@ -31,6 +35,12 @@ function positiveInt(raw: string | undefined, fallback: number): number {
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1) throw new Error(`Expected a positive integer, got ${raw}`);
   return n;
+}
+
+function normaliseBasePath(raw: string | undefined): string {
+  const p = (raw ?? '').trim().replace(/^\/+|\/+$/g, '');
+  if (p && !/^[\w-]+(\/[\w-]+)*$/.test(p)) throw new Error(`Invalid API_BASE_PATH: ${raw}`);
+  return p;
 }
 
 function loadDatabase(env: NodeJS.ProcessEnv, get: (n: string) => string): DatabaseConfig {
@@ -76,6 +86,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   };
   return {
     port: Number(env.PORT ?? 3000),
+    basePath: normaliseBasePath(env.API_BASE_PATH),
+    trustProxyHops: env.TRUST_PROXY_HOPS ? positiveInt(env.TRUST_PROXY_HOPS, 1) : 0,
     corsOrigins: (env.CORS_ORIGINS ?? 'http://localhost:5173')
       .split(',')
       .map((o) => o.trim())
