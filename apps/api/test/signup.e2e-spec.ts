@@ -48,12 +48,28 @@ describe('signup (e2e)', () => {
     expect(directory.createUser).toHaveBeenCalledWith('new@example.com');
   });
 
-  it('gives the same answer for an existing, deleted or deactivated account, and sends nothing', async () => {
-    for (const email of ['taken@example.com', 'gone@example.com', 'off@example.com']) {
+  it('gives the same answer for an existing or deactivated account, and sends nothing', async () => {
+    for (const email of ['taken@example.com', 'off@example.com']) {
       expect((await signup({ email }).expect(202)).body).toEqual(SIGNUP_ACCEPTED);
     }
     expect(directory.resendInvite).not.toHaveBeenCalled();
     expect(directory.setStatus).not.toHaveBeenCalled();
+  });
+
+  it('replaces a deleted account with a fresh one (new temporary password)', async () => {
+    expect((await signup({ email: 'gone@example.com' }).expect(202)).body).toEqual(SIGNUP_ACCEPTED);
+    expect(directory.purgeUser).toHaveBeenCalledWith('u-gone');
+    expect(directory.createUser).toHaveBeenCalledTimes(2); // tried, found deleted, created fresh
+    const fresh = await directory.getUser('gone@example.com');
+    expect(fresh).toMatchObject({ accountStatus: 'active', status: 'FORCE_CHANGE_PASSWORD' });
+    expect(fresh!.id).not.toBe('u-gone');
+  });
+
+  it('never purges a live or deactivated account', async () => {
+    await signup({ email: 'taken@example.com' }).expect(202);
+    await signup({ email: 'off@example.com' }).expect(202);
+    await signup({ email: 'pending@example.com' }).expect(202);
+    expect(directory.purgeUser).not.toHaveBeenCalled();
   });
 
   it('sends a fresh temporary password to someone who never finished signing up', async () => {

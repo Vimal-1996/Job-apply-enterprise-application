@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, HttpException, HttpStatus, Inject, Ip, Logger, Post } from '@nestjs/common';
 import { Public } from '../auth/decorators';
 import { parseEmail } from '../common/email';
+import { createFreshAccount, ExistingAccountError } from '../admin/users/create-account';
 import { USER_DIRECTORY, UserDirectory, UserExistsError } from '../admin/users/user.types';
 import { WindowCounter } from './rate-limiter';
 
@@ -52,24 +53,24 @@ export class SignupController {
     }
 
     try {
-      const user = await this.directory.createUser(email);
+      // A deleted account is replaced by a fresh one (new temporary password).
+      const user = await createFreshAccount(this.directory, email);
       this.audit.log(`created target=${user.id} email=${maskEmail(email)} ip=${ip}`);
     } catch (e) {
       if (!(e instanceof UserExistsError)) throw e;
-      await this.existing(email, ip);
+      await this.existing(email, ip, (e as ExistingAccountError).existing ?? null);
     }
     return SIGNUP_ACCEPTED;
   }
 
   /**
-   * The email already has an account. The reply is the same either way. If
-   * they never finished signing up (temporary password unused, maybe expired),
-   * send a fresh one, which only reaches the address owner. Otherwise send
-   * nothing: a signed-in user should sign in, and a deactivated or deleted
-   * user is told to contact an admin when they do.
+   * The email already has a live account (deleted ones were replaced above).
+   * The reply is the same either way. If they never finished signing up
+   * (temporary password unused, maybe expired), send a fresh one, which only
+   * reaches the address owner. Otherwise send nothing: a signed-in user should
+   * sign in, and a deactivated user is told to contact an admin when they do.
    */
-  private async existing(email: string, ip: string) {
-    const user = await this.directory.getUser(email); // the pool accepts the email as username
+  private async existing(email: string, ip: string, user: Awaited<ReturnType<UserDirectory['getUser']>>) {
     if (user && user.accountStatus === 'active' && user.status === 'FORCE_CHANGE_PASSWORD') {
       await this.directory.resendInvite(user.id);
       this.audit.log(`resent target=${user.id} email=${maskEmail(email)} ip=${ip}`);

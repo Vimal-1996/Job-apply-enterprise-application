@@ -269,3 +269,18 @@ describe('CognitoUserDirectory.mfaEnabled', () => {
     expect(await dirWith('missing').mfaEnabled('x')).toBe(false);
   });
 });
+
+describe('CognitoUserDirectory.purgeUser', () => {
+  it('deletes the user, and treats an already-missing user as done', async () => {
+    let input: any;
+    const ok = fakeClient({ [AdminDeleteUserCommand.name]: (i) => ((input = i), {}) });
+    await new CognitoUserDirectory(ok as any, 'p').purgeUser('u1');
+    expect(input).toEqual({ UserPoolId: 'p', Username: 'u1' });
+    const gone = fakeClient({
+      [AdminDeleteUserCommand.name]: () => {
+        throw Object.assign(new Error('nope'), { name: 'UserNotFoundException' });
+      },
+    });
+    await expect(new CognitoUserDirectory(gone as any, 'p').purgeUser('u1')).resolves.toBeUndefined();
+  });
+});

@@ -42,7 +42,8 @@ export function UserActions({ user, onChanged }: { user: UserDetail; onChanged: 
         </p>
       ) : user.accountStatus === 'deleted' ? (
         <p className="muted" style={{ margin: 0 }}>
-          This account was deleted. If they try to sign in, they are told to contact an administrator.
+          This account was deleted. Signing in shows them a contact-your-administrator message. Signing up again, or
+          adding them again with Add user, replaces it with a fresh account.
         </p>
       ) : pending ? (
         <div className={`confirm ${ACTION_COPY[pending].danger ? 'danger' : ''}`} role="alertdialog" aria-label={ACTION_COPY[pending].label}>

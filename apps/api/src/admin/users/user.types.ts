@@ -40,6 +40,8 @@ export interface UserDirectory extends AccountStatusLookup, MfaLookup {
   createUser(email: string): Promise<UserDetail>;
   /** Emails a fresh temporary password to a user who hasn't signed in yet. */
   resendInvite(id: string): Promise<void>;
+  /** Removes the account from the pool for good (used to replace a soft-deleted one). */
+  purgeUser(id: string): Promise<void>;
 }
 
 export class UserExistsError extends Error {

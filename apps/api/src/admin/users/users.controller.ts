@@ -18,6 +18,7 @@ import { AccountStatusCache } from '../../auth/account-status-cache';
 import { ACCOUNT_STATUS, AccountStatus, AuthUser } from '../../auth/auth.types';
 import { CurrentUser, Roles } from '../../auth/decorators';
 import { parseEmail } from '../../common/email';
+import { createFreshAccount } from './create-account';
 import { RoleFilter, USER_DIRECTORY, UserDetail, UserDirectory, UserExistsError } from './user.types';
 
 const FILTERS: RoleFilter[] = ['all', 'admin', 'user'];
@@ -54,12 +55,15 @@ export class UsersController {
     return this.directory.listUsers({ filter: filter as RoleFilter, nextToken });
   }
 
-  /** Adds a user with the `user` role; Cognito emails them a temporary password. */
+  /**
+   * Adds a user with the `user` role; Cognito emails them a temporary password.
+   * Re-adding a deleted user's email replaces that account with a fresh one.
+   */
   @Post()
   async create(@CurrentUser() actor: AuthUser, @Body() body: unknown) {
     const email = parseEmail(body);
     try {
-      const user = await this.directory.createUser(email);
+      const user = await createFreshAccount(this.directory, email);
       this.audit.log(`actor=${actor.id} action=users.create target=${user.id}`);
       return user;
     } catch (e) {

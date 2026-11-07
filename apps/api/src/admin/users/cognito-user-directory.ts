@@ -210,6 +210,14 @@ export class CognitoUserDirectory implements UserDirectory {
     return created;
   }
 
+  async purgeUser(id: string): Promise<void> {
+    try {
+      await this.client.send(new AdminDeleteUserCommand({ UserPoolId: this.userPoolId, Username: id }));
+    } catch (e) {
+      if (!isNotFound(e)) throw e; // already gone is fine
+    }
+  }
+
   async resendInvite(id: string): Promise<void> {
     await this.client.send(
       new AdminCreateUserCommand({
