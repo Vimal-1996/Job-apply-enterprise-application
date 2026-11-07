@@ -147,6 +147,16 @@ export class CognitoUserDirectory implements UserDirectory {
     }
   }
 
+  /** Every user, a page at a time (for the one-off database backfill; expensive on big pools). */
+  async *allUsers(): AsyncIterable<UserSummary[]> {
+    let nextToken: string | undefined;
+    do {
+      const page = await this.listUsers({ filter: 'all', nextToken });
+      yield page.users;
+      nextToken = page.nextToken ?? undefined;
+    } while (nextToken);
+  }
+
   /** A user removed from the pool outside this app counts as deleted. */
   async statusOf(id: string): Promise<AccountStatus> {
     try {
@@ -157,6 +167,15 @@ export class CognitoUserDirectory implements UserDirectory {
     }
   }
 
+  /** Signs the user out everywhere: refresh tokens are revoked so sessions can't be renewed. */
+  async revokeSessions(id: string): Promise<void> {
+    await this.client.send(new AdminUserGlobalSignOutCommand({ UserPoolId: this.userPoolId, Username: id }));
+  }
+
+  /**
+   * Legacy: status kept as Cognito group membership. The app now keeps status
+   * in Postgres (DbUserDirectory); groups are only read to backfill old users.
+   */
   async setStatus(id: string, status: AccountStatus): Promise<void> {
     const base = { UserPoolId: this.userPoolId, Username: id };
     if (status === 'active') {

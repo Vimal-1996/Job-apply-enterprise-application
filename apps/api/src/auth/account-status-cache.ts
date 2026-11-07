@@ -1,4 +1,4 @@
-import { AccountStatus, AccountStatusLookup, MfaLookup } from './auth.types';
+import { AccountStatus, AccountStatusLookup, MfaLookup, Role } from './auth.types';
 import { TtlCache } from './ttl-cache';
 
 /**
@@ -8,12 +8,17 @@ import { TtlCache } from './ttl-cache';
 export class AccountStatusCache implements AccountStatusLookup {
   private readonly cache: TtlCache<AccountStatus>;
 
-  constructor(source: AccountStatusLookup, ttlMs = 30_000, now: () => number = Date.now) {
+  constructor(
+    private readonly source: AccountStatusLookup,
+    ttlMs = 30_000,
+    now: () => number = Date.now,
+  ) {
     this.cache = new TtlCache((id) => source.statusOf(id), ttlMs, now);
   }
 
-  statusOf(userId: string): Promise<AccountStatus> {
-    return this.cache.get(userId);
+  /** Roles reach the source on a cache miss only, which is enough to keep stored roles in step. */
+  statusOf(userId: string, roles?: Role[]): Promise<AccountStatus> {
+    return this.cache.get(userId, (id) => this.source.statusOf(id, roles));
   }
 
   invalidate(userId: string): void {

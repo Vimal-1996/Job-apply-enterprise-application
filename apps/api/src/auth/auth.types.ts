@@ -25,7 +25,8 @@ export const TOKEN_VERIFIER = Symbol('TOKEN_VERIFIER');
 
 /** Looks up an account's current status (the token alone may be up to an hour stale). */
 export interface AccountStatusLookup {
-  statusOf(userId: string): Promise<AccountStatus>;
+  /** `roles`: the caller's roles from their token, so stored records can follow role changes. */
+  statusOf(userId: string, roles?: Role[]): Promise<AccountStatus>;
 }
 
 export const ACCOUNT_STATUS = Symbol('ACCOUNT_STATUS');
