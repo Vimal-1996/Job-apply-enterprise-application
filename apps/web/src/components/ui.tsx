@@ -15,9 +15,8 @@ export function FullPage({ children }: { children: ReactNode }) {
 export function Brand() {
   return (
     <span className="brand">
-      <span className="brand-mark" aria-hidden>
-        ✦
-      </span>
+      {/* Logo: an application document, approved (check), with AI assistance (spark). Source: public/logo.svg */}
+      <img className="brand-mark" src="/logo.svg" alt="" width={34} height={34} />
       Job Apply
     </span>
   );
