@@ -10,8 +10,10 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
   UNCONFIRMED: { label: 'Unconfirmed', tone: 'warning' },
 };
 
-/** Disabled always wins over the Cognito status. */
-export function accountStatus(u: Pick<UserSummary, 'status' | 'enabled'>): { label: string; tone: Tone } {
+/** Deleted/inactive (set by an admin here) win, then Cognito's own disabled flag, then the Cognito status. */
+export function accountStatus(u: Pick<UserSummary, 'status' | 'enabled' | 'accountStatus'>): { label: string; tone: Tone } {
+  if (u.accountStatus === 'deleted') return { label: 'Deleted', tone: 'danger' };
+  if (u.accountStatus === 'inactive') return { label: 'Inactive', tone: 'warning' };
   if (!u.enabled) return { label: 'Disabled', tone: 'danger' };
   return STATUS[u.status] ?? { label: u.status.toLowerCase().replace(/_/g, ' '), tone: 'neutral' };
 }
@@ -30,4 +32,9 @@ export function matchesSearch(u: UserSummary, q: string): boolean {
   const needle = q.trim().toLowerCase();
   if (!needle) return true;
   return (u.email ?? '').toLowerCase().includes(needle) || u.id.toLowerCase().includes(needle);
+}
+
+/** Same loose check as the API: one @, no spaces, a dot in the domain. */
+export function looksLikeEmail(v: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 }

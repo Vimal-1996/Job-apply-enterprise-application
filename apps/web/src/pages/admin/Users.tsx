@@ -4,6 +4,7 @@ import { apiGet } from '../../api/client';
 import type { UserPage, UserSummary } from '../../api/types';
 import { Badge, initials, Spinner } from '../../components/ui';
 import { accountStatus, formatDate, matchesSearch } from './format';
+import { AddUserDialog } from './AddUserDialog';
 import { UserDrawer } from './UserDrawer';
 
 type Filter = 'all' | 'user' | 'admin';
@@ -25,6 +26,7 @@ export function Users() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const fetchPage = useCallback(
     (f: Filter, cursor?: string) => {
@@ -77,9 +79,14 @@ export function Users() {
           <p>Every account in the user pool. Only administrators can see this page.</p>
         </div>
         <span className="spacer" />
-        <button className="btn btn-ghost" onClick={() => void load()} disabled={loading}>
-          ↻ Refresh
-        </button>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="btn btn-ghost" onClick={() => void load()} disabled={loading}>
+            ↻ Refresh
+          </button>
+          <button className="btn btn-primary" onClick={() => setAdding(true)}>
+            + Add user
+          </button>
+        </div>
       </header>
 
       <div className="card" style={{ padding: 0, gap: 0 }}>
@@ -196,7 +203,24 @@ export function Users() {
         )}
       </div>
 
-      {selected && <UserDrawer userId={selected} onClose={() => setSelected(null)} />}
+      {adding && (
+        <AddUserDialog
+          onClose={() => setAdding(false)}
+          onCreated={({ mfaMethods, preferredMfa, identityProvider, ...summary }) =>
+            setUsers((prev) => [...prev.filter((u) => u.id !== summary.id), summary].sort((a, b) => (a.email ?? '').localeCompare(b.email ?? '')))
+          }
+        />
+      )}
+
+      {selected && (
+        <UserDrawer
+          userId={selected}
+          onClose={() => setSelected(null)}
+          onChanged={(changed) =>
+            setUsers((prev) => prev.map((u) => (u.id === changed.id ? { ...u, accountStatus: changed.accountStatus } : u)))
+          }
+        />
+      )}
     </>
   );
 }
