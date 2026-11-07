@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
-import { groupsFromProfile } from '../auth/roles';
+import { groupsFromProfile, requiresMfa } from '../auth/roles';
 import { ApiCheck } from '../components/ApiCheck';
 import { Badge } from '../components/ui';
 
@@ -52,12 +52,16 @@ export function Account() {
           <h3>Session</h3>
           <dl className="kv">
             <dt>Sign-in method</dt>
-            <dd>Cognito · password + authenticator app</dd>
+            <dd>Cognito · password{requiresMfa(groups) ? ' + authenticator app' : ''}</dd>
             <dt>MFA</dt>
             <dd>
-              <Badge tone="success" dot>
-                Enforced
-              </Badge>
+              {requiresMfa(groups) ? (
+                <Badge tone="success" dot>
+                  Required for administrators
+                </Badge>
+              ) : (
+                <Badge>Not required</Badge>
+              )}
             </dd>
             <dt>Token refresh in</dt>
             <dd>{remaining} (renews automatically)</dd>

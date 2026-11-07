@@ -1,32 +1,35 @@
-import { AccountStatus, AccountStatusLookup } from './auth.types';
-
-const MAX_ENTRIES = 10_000;
+import { AccountStatus, AccountStatusLookup, MfaLookup } from './auth.types';
+import { TtlCache } from './ttl-cache';
 
 /**
- * Short-lived cache in front of the identity store so the per-request status
- * check doesn't cost a Cognito call every time. Admin actions call
- * `invalidate`, so a change takes effect immediately on this instance and
- * within `ttlMs` on any other.
+ * Cached account status. Admin actions call `invalidate`, so a change takes
+ * effect immediately on this instance and within `ttlMs` on any other.
  */
 export class AccountStatusCache implements AccountStatusLookup {
-  private readonly entries = new Map<string, { status: AccountStatus; expires: number }>();
+  private readonly cache: TtlCache<AccountStatus>;
 
-  constructor(
-    private readonly source: AccountStatusLookup,
-    private readonly ttlMs = 30_000,
-    private readonly now: () => number = Date.now,
-  ) {}
+  constructor(source: AccountStatusLookup, ttlMs = 30_000, now: () => number = Date.now) {
+    this.cache = new TtlCache((id) => source.statusOf(id), ttlMs, now);
+  }
 
-  async statusOf(userId: string): Promise<AccountStatus> {
-    const hit = this.entries.get(userId);
-    if (hit && hit.expires > this.now()) return hit.status;
-    const status = await this.source.statusOf(userId);
-    if (this.entries.size >= MAX_ENTRIES) this.entries.clear();
-    this.entries.set(userId, { status, expires: this.now() + this.ttlMs });
-    return status;
+  statusOf(userId: string): Promise<AccountStatus> {
+    return this.cache.get(userId);
   }
 
   invalidate(userId: string): void {
-    this.entries.delete(userId);
+    this.cache.invalidate(userId);
+  }
+}
+
+/** Cached MFA state; checked only on admin routes. */
+export class MfaCache implements MfaLookup {
+  private readonly cache: TtlCache<boolean>;
+
+  constructor(source: MfaLookup, ttlMs = 30_000, now: () => number = Date.now) {
+    this.cache = new TtlCache((id) => source.mfaEnabled(id), ttlMs, now);
+  }
+
+  mfaEnabled(userId: string): Promise<boolean> {
+    return this.cache.get(userId);
   }
 }

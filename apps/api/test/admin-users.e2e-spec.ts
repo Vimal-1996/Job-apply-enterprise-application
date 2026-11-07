@@ -14,8 +14,8 @@ const TOKENS = {
 describe('admin users (e2e)', () => {
   let app: INestApplication;
   const directory = fakeDirectory([
-    detail('u-admin', { groups: ['admin'] }),
-    detail('u-admin2', { groups: ['admin', 'user'] }),
+    detail('u-admin', { groups: ['admin'], mfaMethods: ['SOFTWARE_TOKEN_MFA'] }),
+    detail('u-admin2', { groups: ['admin', 'user'], mfaMethods: ['SOFTWARE_TOKEN_MFA'] }),
     detail('u-user'),
     detail('u-other'),
     detail('u-deleted', { accountStatus: 'deleted' }),

@@ -39,8 +39,7 @@ export function SignupForm({ onSignIn }: { onSignIn: () => void }) {
         <h2>Check your email</h2>
         <p role="status">{done}</p>
         <p className="muted" style={{ margin: 0 }}>
-          The temporary password is valid for 3 days. On first sign-in you'll choose a new password and set up an
-          authenticator app.
+          The temporary password is valid for 3 days. On first sign-in you'll choose a new password.
         </p>
         <button className="btn btn-primary btn-lg" onClick={onSignIn}>
           Sign in

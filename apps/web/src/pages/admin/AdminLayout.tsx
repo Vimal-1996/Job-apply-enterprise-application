@@ -1,8 +1,47 @@
+import { useEffect, useState } from 'react';
+import { useAuth } from 'react-oidc-context';
 import { NavLink, Outlet } from 'react-router-dom';
+import { ApiError, apiGet } from '../../api/client';
+import { FullPage } from '../../components/ui';
 import { ADMIN_NAV } from './adminNav';
+
+/**
+ * The API refuses admin routes to an admin account without MFA. Ask once on
+ * entry so the console explains that instead of failing page by page.
+ */
+function useMfaBlocked(): { blocked: boolean; message: string } {
+  const auth = useAuth();
+  const [state, setState] = useState({ blocked: false, message: '' });
+  useEffect(() => {
+    let cancelled = false;
+    apiGet('/admin/ping', auth.user?.access_token)
+      .then(() => !cancelled && setState({ blocked: false, message: '' }))
+      .catch((e) => {
+        if (!cancelled && e instanceof ApiError && e.code === 'MFA_REQUIRED') setState({ blocked: true, message: e.message });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.user?.access_token]);
+  return state;
+}
 
 /** Admin console frame: section sidebar on the left, page on the right. */
 export function AdminLayout() {
+  const mfa = useMfaBlocked();
+  if (mfa.blocked) {
+    return (
+      <FullPage>
+        <div className="big-code" aria-hidden>
+          🛡️
+        </div>
+        <h2>Multi-factor authentication required</h2>
+        <p className="muted" role="alert" style={{ maxWidth: 460 }}>
+          {mfa.message}
+        </p>
+      </FullPage>
+    );
+  }
   return (
     <div className="admin">
       <aside className="admin-sidebar" aria-label="Admin sections">

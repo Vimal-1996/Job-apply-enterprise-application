@@ -8,7 +8,7 @@ const STATS = [
 ];
 
 const STEPS = [
-  { label: 'Sign in with MFA', done: true },
+  { label: 'Create your account', done: true },
   { label: 'Upload your resume', done: false },
   { label: 'Connect a job source', done: false },
   { label: 'Schedule your first agent run', done: false },

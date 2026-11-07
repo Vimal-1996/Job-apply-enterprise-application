@@ -56,6 +56,8 @@ export function fakeDirectory(seed: UserDetail[]) {
       return { ...u };
     }),
     resendInvite: jest.fn(async (_id: string) => undefined),
+    // Admins are seeded with MFA on; tests can switch it off per user.
+    mfaEnabled: jest.fn(async (id: string) => store.get(id)?.mfaMethods.includes('SOFTWARE_TOKEN_MFA') ?? false),
   };
   return dir satisfies UserDirectory & { reset: () => void };
 }

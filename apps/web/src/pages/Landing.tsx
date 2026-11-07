@@ -81,7 +81,7 @@ export function Landing() {
           )}
           <div className="trust">
             <span>🔒 Encrypted</span>
-            <span>🛡️ MFA required</span>
+            <span>🛡️ MFA for admins</span>
             <span>☁️ AWS Cognito</span>
           </div>
         </div>

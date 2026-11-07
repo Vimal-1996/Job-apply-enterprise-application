@@ -249,3 +249,23 @@ describe('CognitoUserDirectory.resendInvite', () => {
     expect(input).toEqual({ UserPoolId: 'p', Username: 'u1', MessageAction: 'RESEND', DesiredDeliveryMediums: ['EMAIL'] });
   });
 });
+
+describe('CognitoUserDirectory.mfaEnabled', () => {
+  const dirWith = (res: object | 'missing') =>
+    new CognitoUserDirectory(
+      fakeClient({
+        [AdminGetUserCommand.name]: () => {
+          if (res === 'missing') throw Object.assign(new Error('nope'), { name: 'UserNotFoundException' });
+          return res;
+        },
+      }) as any,
+      'p',
+    );
+
+  it('is true only when an authenticator app is switched on', async () => {
+    expect(await dirWith({ UserMFASettingList: ['SOFTWARE_TOKEN_MFA'] }).mfaEnabled('x')).toBe(true);
+    expect(await dirWith({ UserMFASettingList: [] }).mfaEnabled('x')).toBe(false);
+    expect(await dirWith({}).mfaEnabled('x')).toBe(false);
+    expect(await dirWith('missing').mfaEnabled('x')).toBe(false);
+  });
+});

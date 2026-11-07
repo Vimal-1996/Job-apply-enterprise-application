@@ -10,6 +10,7 @@ const TOKENS = {
   'admin-token': { sub: 'u-admin', client_id: 'c', 'cognito:groups': ['admin'] },
   'user-token': { sub: 'u-user', client_id: 'c', 'cognito:groups': ['user'] },
   'nogroup-token': { sub: 'u-none', client_id: 'c' },
+  'nomfa-admin-token': { sub: 'u-admin-nomfa', client_id: 'c', 'cognito:groups': ['admin'] },
   // Status changed after the token was issued: only the live lookup knows.
   'inactive-token': { sub: 'u-inactive', client_id: 'c', 'cognito:groups': ['user'] },
   'deleted-token': { sub: 'u-deleted', client_id: 'c', 'cognito:groups': ['user'] },
@@ -21,7 +22,8 @@ const TOKENS = {
 describe('auth (e2e)', () => {
   let app: INestApplication;
   const directory = fakeDirectory([
-    detail('u-admin', { groups: ['admin'] }),
+    detail('u-admin', { groups: ['admin'], mfaMethods: ['SOFTWARE_TOKEN_MFA'] }),
+    detail('u-admin-nomfa', { groups: ['admin'] }),
     detail('u-user'),
     detail('u-none', { groups: [] }),
     detail('u-inactive', { accountStatus: 'inactive' }),
@@ -95,6 +97,21 @@ describe('auth (e2e)', () => {
 
   it('allows an admin on /admin/ping (200)', () =>
     request(app.getHttpServer()).get('/admin/ping').set('Authorization', 'Bearer admin-token').expect(200));
+
+  it('refuses admin routes to an admin without MFA, but not normal routes', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/admin/ping')
+      .set('Authorization', 'Bearer nomfa-admin-token')
+      .expect(403);
+    expect(res.body.code).toBe('MFA_REQUIRED');
+    await me('nomfa-admin-token').expect(200);
+  });
+
+  it('never asks a normal user for MFA', async () => {
+    directory.mfaEnabled.mockClear();
+    await me('user-token').expect(200);
+    expect(directory.mfaEnabled).not.toHaveBeenCalled();
+  });
 
   it('requires authentication before authorization on /admin/ping (401, not 403)', () =>
     request(app.getHttpServer()).get('/admin/ping').expect(401));
