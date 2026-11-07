@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupsFromProfile, hasAnyRole } from './roles';
+import { groupsFromProfile, hasAnyRole, requiresMfa } from './roles';
 
 describe('groupsFromProfile', () => {
   it('returns known groups only', () => {
@@ -8,6 +8,15 @@ describe('groupsFromProfile', () => {
   it('handles missing or malformed claims', () => {
     expect(groupsFromProfile(undefined)).toEqual([]);
     expect(groupsFromProfile({ 'cognito:groups': 'admin' })).toEqual([]);
+  });
+});
+
+describe('requiresMfa', () => {
+  it('is required for admins only', () => {
+    expect(requiresMfa(['admin'])).toBe(true);
+    expect(requiresMfa(['admin', 'user'])).toBe(true);
+    expect(requiresMfa(['user'])).toBe(false);
+    expect(requiresMfa([])).toBe(false);
   });
 });
 

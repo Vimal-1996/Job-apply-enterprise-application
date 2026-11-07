@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from 'react-oidc-context';
+import { SignupForm } from '../components/SignupForm';
 import { Brand, Spinner } from '../components/ui';
 
 const FEATURES = [
@@ -11,6 +12,7 @@ const FEATURES = [
 export function Landing() {
   const auth = useAuth();
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
 
   const signIn = async () => {
     setBusy(true);
@@ -46,20 +48,40 @@ export function Landing() {
 
       <section className="landing-panel">
         <div className="signin-card">
-          <h2>Welcome back</h2>
-          <p>Sign in to continue to your dashboard.</p>
-          {auth.error && (
-            <p role="alert" style={{ color: 'var(--danger)' }}>
-              Sign-in failed: {auth.error.message}
-            </p>
+          {mode === 'signup' ? (
+            <>
+              <SignupForm onSignIn={() => void signIn()} />
+              <p className="switch-mode">
+                Already have an account?{' '}
+                <button className="link-btn" onClick={() => setMode('signin')}>
+                  Sign in
+                </button>
+              </p>
+            </>
+          ) : (
+            <>
+              <h2>Welcome back</h2>
+              <p>Sign in to continue to your dashboard.</p>
+              {auth.error && (
+                <p role="alert" style={{ color: 'var(--danger)' }}>
+                  Sign-in failed: {auth.error.message}
+                </p>
+              )}
+              <button className="btn btn-primary btn-lg" onClick={() => void signIn()} disabled={busy}>
+                {busy ? <Spinner small /> : null}
+                {busy ? 'Redirecting…' : 'Sign in'}
+              </button>
+              <p className="switch-mode">
+                New here?{' '}
+                <button className="link-btn" onClick={() => setMode('signup')}>
+                  Create an account
+                </button>
+              </p>
+            </>
           )}
-          <button className="btn btn-primary btn-lg" onClick={() => void signIn()} disabled={busy}>
-            {busy ? <Spinner small /> : null}
-            {busy ? 'Redirecting…' : 'Sign in'}
-          </button>
           <div className="trust">
             <span>🔒 Encrypted</span>
-            <span>🛡️ MFA required</span>
+            <span>🛡️ MFA for admins</span>
             <span>☁️ AWS Cognito</span>
           </div>
         </div>

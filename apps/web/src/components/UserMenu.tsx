@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link } from 'react-router-dom';
-import { cognitoLogoutUrl } from '../auth/oidc';
+import { signOut } from '../auth/signOut';
 import { groupsFromProfile } from '../auth/roles';
 import { Badge, initials } from './ui';
 
@@ -27,11 +27,6 @@ export function UserMenu() {
     };
   }, [open]);
 
-  const signOut = async () => {
-    await auth.removeUser(); // drop local tokens
-    window.location.href = cognitoLogoutUrl(); // end the Cognito session too
-  };
-
   return (
     <div className="user-menu" ref={ref}>
       <button className="avatar-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -50,7 +45,7 @@ export function UserMenu() {
           <Link to="/account" role="menuitem" onClick={() => setOpen(false)}>
             👤 Account & security
           </Link>
-          <button role="menuitem" className="danger" onClick={() => void signOut()}>
+          <button role="menuitem" className="danger" onClick={() => void signOut(auth)}>
             ⎋ Sign out
           </button>
         </div>

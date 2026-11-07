@@ -2,26 +2,44 @@ import { useEffect, type ReactNode } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link } from 'react-router-dom';
 import { FullPage, Spinner } from '../components/ui';
+import { NotFound } from '../pages/NotFound';
 import { groupsFromProfile, hasAnyRole, type Role } from './roles';
+import { useSigningOut } from './useSigningOut';
 
-/** Route guard: sends anonymous users to Cognito and shows 403 for missing roles. */
-export function RequireAuth({ roles = [], children }: { roles?: Role[]; children: ReactNode }) {
+/**
+ * Route guard: sends anonymous users to Cognito. For signed-in users missing a
+ * role it shows 403, or a plain 404 when `hidden` is set so the page's
+ * existence isn't revealed (used for admin pages).
+ */
+export function RequireAuth({
+  roles = [],
+  hidden = false,
+  children,
+}: {
+  roles?: Role[];
+  hidden?: boolean;
+  children: ReactNode;
+}) {
   const auth = useAuth();
-  const needsLogin = !auth.isLoading && !auth.error && !auth.isAuthenticated;
+  const signingOut = useSigningOut();
+  // Never start a sign-in while signing out: it would race the logout redirect
+  // and, with Cognito's session still alive, sign the user straight back in.
+  const needsLogin = !signingOut && !auth.isLoading && !auth.error && !auth.isAuthenticated;
 
   useEffect(() => {
     if (needsLogin) void auth.signinRedirect({ state: window.location.pathname });
   }, [needsLogin, auth]);
 
-  if (auth.isLoading || needsLogin) {
+  if (signingOut || auth.isLoading || needsLogin) {
     return (
       <FullPage>
         <Spinner />
-        <p className="muted">{needsLogin ? 'Redirecting to sign in…' : 'Loading…'}</p>
+        <p className="muted">{signingOut ? 'Signing out…' : needsLogin ? 'Redirecting to sign in…' : 'Loading…'}</p>
       </FullPage>
     );
   }
   if (!hasAnyRole(groupsFromProfile(auth.user?.profile), roles)) {
+    if (hidden) return <NotFound />;
     return (
       <FullPage>
         <div className="big-code">403</div>

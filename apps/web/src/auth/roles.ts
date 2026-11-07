@@ -7,6 +7,11 @@ export function groupsFromProfile(profile: Record<string, unknown> | undefined):
   return raw.filter((g): g is Role => g === 'admin' || g === 'user');
 }
 
+/** MFA is required for administrators only; normal users sign in with a password. */
+export function requiresMfa(groups: Role[]): boolean {
+  return groups.includes('admin');
+}
+
 export function hasAnyRole(groups: Role[], required: Role[]): boolean {
   return required.length === 0 || required.some((r) => groups.includes(r));
 }
