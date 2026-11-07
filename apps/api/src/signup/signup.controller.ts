@@ -1,7 +1,7 @@
-import { Body, Controller, HttpCode, HttpException, HttpStatus, Inject, Ip, Logger, Post } from '@nestjs/common';
+import { Body, ConflictException, Controller, HttpCode, HttpException, HttpStatus, Inject, Ip, Logger, Post } from '@nestjs/common';
 import { Public } from '../auth/decorators';
 import { parseEmail } from '../common/email';
-import { createFreshAccount, ExistingAccountError } from '../admin/users/create-account';
+import { createFreshAccount, ExistingAccountError, isAdmin } from '../admin/users/create-account';
 import { USER_DIRECTORY, UserDirectory, UserExistsError } from '../admin/users/user.types';
 import { WindowCounter } from './rate-limiter';
 
@@ -11,10 +11,20 @@ export interface SignupLimits {
   global: WindowCounter;
 }
 
-/** Same reply whether or not an account was created, so the endpoint can't be used to probe emails. */
+/** A temporary password was emailed: a new account, a deleted one started fresh, or an unfinished sign-up. */
 export const SIGNUP_ACCEPTED = {
-  message:
-    "Thanks! If this email can be used to sign up, we've sent it a temporary password. Check your inbox (and spam folder), then sign in.",
+  message: "Thanks! We've sent a temporary password to your email. Check your inbox (and spam folder), then sign in.",
+};
+
+/**
+ * The email already has a live account. Deliberately the same for every role
+ * and status: sign-up is public, so naming the role would let anyone find out
+ * which emails are administrators.
+ */
+export const EMAIL_IN_USE = {
+  statusCode: 409,
+  code: 'EMAIL_IN_USE',
+  message: 'This email already has an account. Sign in instead.',
 };
 
 /** a***@example.com: enough to correlate logs, not enough to harvest addresses. */
@@ -64,18 +74,25 @@ export class SignupController {
   }
 
   /**
-   * The email already has a live account (deleted ones were replaced above).
-   * The reply is the same either way. If they never finished signing up
-   * (temporary password unused, maybe expired), send a fresh one, which only
-   * reaches the address owner. Otherwise send nothing: a signed-in user should
-   * sign in, and a deactivated user is told to contact an admin when they do.
+   * The email already has a live account (deleted ones were replaced above),
+   * or belongs to an administrator.
+   * - A normal user who never finished signing up (temporary password unused,
+   *   maybe expired) gets a fresh one, which only reaches the address owner.
+   * - Everyone else (signed-in or deactivated users, and every admin) gets
+   *   409 EMAIL_IN_USE straight away and nothing is sent. Admin accounts are
+   *   never touched from public sign-up, and the reply never names the role.
    */
   private async existing(email: string, ip: string, user: Awaited<ReturnType<UserDirectory['getUser']>>) {
+    if (user && isAdmin(user)) {
+      this.audit.warn(`admin email used for sign-up target=${user.id} ip=${ip}; nothing sent`);
+      throw new ConflictException(EMAIL_IN_USE);
+    }
     if (user && user.accountStatus === 'active' && user.status === 'FORCE_CHANGE_PASSWORD') {
       await this.directory.resendInvite(user.id);
       this.audit.log(`resent target=${user.id} email=${maskEmail(email)} ip=${ip}`);
-    } else {
-      this.audit.log(`exists target=${user?.id ?? '?'} status=${user?.accountStatus ?? '?'} ip=${ip}`);
+      return;
     }
+    this.audit.log(`exists target=${user?.id ?? '?'} status=${user?.accountStatus ?? '?'} ip=${ip}`);
+    throw new ConflictException(EMAIL_IN_USE);
   }
 }

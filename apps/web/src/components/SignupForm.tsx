@@ -8,6 +8,7 @@ export function SignupForm({ onSignIn }: { onSignIn: () => void }) {
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inUse, setInUse] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -21,10 +22,12 @@ export function SignupForm({ onSignIn }: { onSignIn: () => void }) {
     }
     setBusy(true);
     setError(null);
+    setInUse(false);
     try {
       const res = await apiPost<{ message: string }>('/signup', undefined, { email: email.trim() });
       setDone(res.message);
     } catch (err) {
+      setInUse(err instanceof ApiError && err.code === 'EMAIL_IN_USE');
       setError(
         err instanceof ApiError && err.status !== 500 ? err.message : 'Something went wrong. Please try again in a moment.',
       );
@@ -61,7 +64,11 @@ export function SignupForm({ onSignIn }: { onSignIn: () => void }) {
           type="email"
           autoComplete="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            setError(null);
+            setInUse(false);
+          }}
           placeholder="name@example.com"
           aria-invalid={Boolean(error)}
           aria-describedby={error ? 'signup-error' : undefined}
@@ -70,9 +77,15 @@ export function SignupForm({ onSignIn }: { onSignIn: () => void }) {
         />
       </label>
       {error && (
-        <p id="signup-error" role="alert" style={{ margin: 0, color: 'var(--danger)' }}>
+        <p id="signup-error" role="alert" style={{ margin: 0, color: inUse ? 'var(--warning)' : 'var(--danger)' }}>
+          {inUse ? '⚠️ ' : ''}
           {error}
         </p>
+      )}
+      {inUse && (
+        <button type="button" className="btn btn-ghost btn-lg" onClick={onSignIn}>
+          Sign in instead
+        </button>
       )}
       <button type="submit" className="btn btn-primary btn-lg" disabled={busy || !email.trim()}>
         {busy && <Spinner small />} {busy ? 'Sending…' : 'Sign up'}

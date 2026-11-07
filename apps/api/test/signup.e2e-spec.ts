@@ -5,7 +5,7 @@ import { AppModule } from '../src/app.module';
 import { TOKEN_VERIFIER } from '../src/auth/auth.types';
 import { USER_DIRECTORY } from '../src/admin/users/user.types';
 import { WindowCounter } from '../src/signup/rate-limiter';
-import { SIGNUP_ACCEPTED, SIGNUP_LIMITS } from '../src/signup/signup.controller';
+import { EMAIL_IN_USE, SIGNUP_ACCEPTED, SIGNUP_LIMITS } from '../src/signup/signup.controller';
 import { detail, fakeDirectory, fakeVerifier } from './fakes';
 
 describe('signup (e2e)', () => {
@@ -15,6 +15,9 @@ describe('signup (e2e)', () => {
     detail('u-gone', { email: 'gone@example.com', accountStatus: 'deleted' }),
     detail('u-pending', { email: 'pending@example.com', status: 'FORCE_CHANGE_PASSWORD' }),
     detail('u-off', { email: 'off@example.com', status: 'FORCE_CHANGE_PASSWORD', accountStatus: 'inactive' }),
+    detail('u-admin', { email: 'admin@example.com', groups: ['admin'] }),
+    detail('u-admin-invited', { email: 'new-admin@example.com', groups: ['admin'], status: 'FORCE_CHANGE_PASSWORD' }),
+    detail('u-admin-deleted', { email: 'old-admin@example.com', groups: ['admin'], accountStatus: 'deleted' }),
   ]);
   const limits = { perIp: new WindowCounter(3, 60_000), global: new WindowCounter(1000, 60_000) };
 
@@ -48,9 +51,9 @@ describe('signup (e2e)', () => {
     expect(directory.createUser).toHaveBeenCalledWith('new@example.com');
   });
 
-  it('gives the same answer for an existing or deactivated account, and sends nothing', async () => {
+  it('tells an existing or deactivated user straight away that the email is in use, and sends nothing', async () => {
     for (const email of ['taken@example.com', 'off@example.com']) {
-      expect((await signup({ email }).expect(202)).body).toEqual(SIGNUP_ACCEPTED);
+      expect((await signup({ email }).expect(409)).body).toEqual(EMAIL_IN_USE);
     }
     expect(directory.resendInvite).not.toHaveBeenCalled();
     expect(directory.setStatus).not.toHaveBeenCalled();
@@ -66,10 +69,27 @@ describe('signup (e2e)', () => {
   });
 
   it('never purges a live or deactivated account', async () => {
-    await signup({ email: 'taken@example.com' }).expect(202);
-    await signup({ email: 'off@example.com' }).expect(202);
+    await signup({ email: 'taken@example.com' }).expect(409);
+    await signup({ email: 'off@example.com' }).expect(409);
     await signup({ email: 'pending@example.com' }).expect(202);
     expect(directory.purgeUser).not.toHaveBeenCalled();
+  });
+
+  describe('an administrator\'s email', () => {
+    it('is refused straight away as in use, without naming the role, and never becomes a normal user', async () => {
+      limits.perIp = new WindowCounter(10, 60_000); // this test makes more requests than the suite's default cap
+      for (const email of ['admin@example.com', 'Admin@Example.com', 'new-admin@example.com', 'old-admin@example.com']) {
+        const res = await signup({ email }).expect(409);
+        expect(res.body).toEqual(EMAIL_IN_USE); // identical to a normal user's reply
+        expect(JSON.stringify(res.body)).not.toMatch(/admin/i);
+      }
+      expect(directory.purgeUser).not.toHaveBeenCalled(); // not even an admin marked deleted
+      expect(directory.resendInvite).not.toHaveBeenCalled(); // no temporary password for an invited admin
+      expect(directory.setStatus).not.toHaveBeenCalled();
+      for (const email of ['admin@example.com', 'new-admin@example.com', 'old-admin@example.com']) {
+        expect((await directory.getUser(email))!.groups).toEqual(['admin']); // unchanged
+      }
+    });
   });
 
   it('sends a fresh temporary password to someone who never finished signing up', async () => {
