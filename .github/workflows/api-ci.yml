@@ -64,6 +64,10 @@ jobs:
       - name: Image contains no dev dependencies and runs as non-root
         run: |
           docker run --rm --entrypoint sh job-apply-api:ci -c 'test ! -d node_modules/pg-mem && test ! -d node_modules/jest && test "$(id -un)" = node'
+      - name: The non-root user can read the database CA bundle
+        # CI's Postgres runs without TLS, so the API never reads this file here; production does.
+        run: |
+          docker run --rm --entrypoint sh job-apply-api:ci -c 'test -r "$DB_SSL_CA" && grep -q "BEGIN CERTIFICATE" "$DB_SSL_CA"'
       - name: Start the image against Postgres
         run: |
           docker run -d --name api --network host \

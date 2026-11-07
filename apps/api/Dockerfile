@@ -14,6 +14,8 @@ RUN npm ci --no-audit --no-fund
 COPY apps/api/tsconfig.json apps/api/tsconfig.build.json ./
 COPY apps/api/src ./src
 RUN npm run build && npm prune --omit=dev --no-audit --no-fund
+# AWS RDS/Aurora certificate authorities, so the database's TLS certificate is verified.
+ADD https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /src/certs/rds-global-bundle.pem
 
 # ---- runtime: only what's needed to run, as a non-root user ----
 FROM ${NODE_IMAGE}
@@ -22,8 +24,10 @@ ENV NODE_ENV=production \
     MIGRATIONS_DIR=/app/db/migrations \
     DB_SSL_CA=/app/certs/rds-global-bundle.pem
 WORKDIR /app
-# AWS RDS/Aurora certificate authorities, so the database's TLS certificate is verified.
-ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/certs/rds-global-bundle.pem
+COPY --from=build /src/certs/rds-global-bundle.pem /app/certs/rds-global-bundle.pem
+# Explicit: the non-root user must be able to read the CA bundle (ADD's
+# defaults left it unreadable, which stopped the API connecting to the DB).
+RUN chmod 755 /app/certs && chmod 644 /app/certs/rds-global-bundle.pem
 COPY --from=build /src/apps/api/package.json ./
 COPY --from=build /src/apps/api/node_modules ./node_modules
 COPY --from=build /src/apps/api/dist ./dist
