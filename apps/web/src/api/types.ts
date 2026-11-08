@@ -25,3 +25,18 @@ export interface UserPage {
   users: UserSummary[];
   nextToken: string | null;
 }
+
+export interface Resume {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  isCurrent: boolean;
+  uploadedAt: string | null;
+}
+
+export interface PresignedUpload {
+  url: string;
+  fields: Record<string, string>;
+  expiresInSeconds: number;
+}

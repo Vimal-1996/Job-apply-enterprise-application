@@ -1,4 +1,5 @@
-import { migrate } from './migrate';
+import { readdirSync } from 'fs';
+import { defaultMigrationsDir, migrate } from './migrate';
 import { closeTestPools, testPool } from './test-pool';
 import { decodeCursor, encodeCursor, PgUserStore } from './user-store';
 
@@ -7,7 +8,9 @@ afterAll(closeTestPools);
 describe('migrate', () => {
   it('applies the migrations once, and is a no-op the second time', async () => {
     const pool = await testPool();
-    expect(await migrate(pool)).toEqual(['001_app_user.sql']);
+    const all = readdirSync(defaultMigrationsDir()).filter((f) => f.endsWith('.sql')).sort();
+    expect(all[0]).toBe('001_app_user.sql');
+    expect(await migrate(pool)).toEqual(all);
     expect(await migrate(pool)).toEqual([]);
   });
 });

@@ -47,6 +47,8 @@ export class DbUserDirectory implements UserDirectory {
   constructor(
     private readonly store: UserStore,
     private readonly cognito: CognitoSide,
+    /** Removes the user's other data (their files) when the account is removed for good. */
+    private readonly onPurge: (userId: string) => Promise<void> = async () => undefined,
   ) {}
 
   async listUsers({ filter, nextToken, search }: { filter: RoleFilter; nextToken?: string; search?: string }): Promise<UserPage> {
@@ -118,8 +120,9 @@ export class DbUserDirectory implements UserDirectory {
   }
 
   async purgeUser(id: string): Promise<void> {
+    await this.onPurge(id); // files first: rows can be re-derived, orphaned files can't be found
     await this.cognito.purgeUser(id);
-    await this.store.delete(id);
+    await this.store.delete(id); // also deletes their resume rows (ON DELETE CASCADE)
   }
 
   mfaEnabled(id: string): Promise<boolean> {
