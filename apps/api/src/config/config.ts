@@ -9,6 +9,8 @@ export interface AppConfig {
   /** Public sign-up sends email, so it is rate limited. Cognito's default sender allows 50 emails/day. */
   signup: { perIpPerHour: number; perDay: number };
   database: DatabaseConfig;
+  /** Private bucket for users' files (resumes). Region defaults to the user pool's. */
+  userFiles: { bucket: string; region: string };
 }
 
 /**
@@ -98,6 +100,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       perDay: positiveInt(env.SIGNUP_PER_DAY, 30),
     },
     database: loadDatabase(env, get),
+    userFiles: {
+      bucket: get('USER_FILES_BUCKET'),
+      region: env.AWS_REGION || get('COGNITO_USER_POOL_ID').split('_')[0],
+    },
   };
 }
 

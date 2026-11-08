@@ -1,4 +1,8 @@
+import { useEffect, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
+import { Link } from 'react-router-dom';
+import { apiGet } from '../api/client';
+import type { Resume } from '../api/types';
 import { ApiCheck } from '../components/ApiCheck';
 
 const STATS = [
@@ -7,16 +11,31 @@ const STATS = [
   { label: 'Agent runs this week', value: '0' },
 ];
 
-const STEPS = [
-  { label: 'Create your account', done: true },
-  { label: 'Upload your resume', done: false },
-  { label: 'Connect a job source', done: false },
-  { label: 'Schedule your first agent run', done: false },
-];
+/** Whether the user has a resume yet (null while loading or if the API is unreachable). */
+function useHasResume(token: string | undefined): boolean | null {
+  const [has, setHas] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<Resume[]>('/resumes', token)
+      .then((r) => !cancelled && setHas(r.length > 0))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+  return has;
+}
 
 export function Dashboard() {
   const auth = useAuth();
   const name = auth.user?.profile.email?.split('@')[0] ?? 'there';
+  const hasResume = useHasResume(auth.user?.access_token);
+  const STEPS = [
+    { label: 'Create your account', done: true },
+    { label: 'Upload your resume', done: hasResume === true, to: '/resume' },
+    { label: 'Connect a job source', done: false },
+    { label: 'Schedule your first agent run', done: false },
+  ];
 
   return (
     <>
@@ -41,7 +60,7 @@ export function Dashboard() {
             {STEPS.map((s) => (
               <li key={s.label}>
                 <span className={s.done ? 'check done' : 'check'}>✓</span>
-                <span className={s.done ? '' : 'muted'}>{s.label}</span>
+                {s.to && !s.done ? <Link to={s.to}>{s.label}</Link> : <span className={s.done ? '' : 'muted'}>{s.label}</span>}
               </li>
             ))}
           </ul>

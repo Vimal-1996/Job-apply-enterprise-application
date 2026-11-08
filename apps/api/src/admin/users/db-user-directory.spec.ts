@@ -170,4 +170,18 @@ describe('DbUserDirectory', () => {
     expect((await store.get('known'))!.accountStatus).toBe('inactive'); // table wins
     expect(await store.get('b')).toMatchObject({ role: 'admin', signedInAt: null });
   });
+
+  it("purgeUser removes the user's files first, then the account", async () => {
+    const db = await testPool();
+    await migrate(db);
+    const store = new PgUserStore(db);
+    const cognito = fakeCognito();
+    const order: string[] = [];
+    const dir = new DbUserDirectory(store, cognito, async (id) => void order.push(`files:${id}`));
+    const u = await dir.createUser('a@example.com');
+    cognito.purgeUser.mockImplementation(async (id: string) => void order.push(`cognito:${id}`));
+    await dir.purgeUser(u.id);
+    expect(order).toEqual([`files:${u.id}`, `cognito:${u.id}`]);
+    expect(await store.get(u.id)).toBeNull();
+  });
 });

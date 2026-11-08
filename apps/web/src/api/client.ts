@@ -37,6 +37,7 @@ async function request<T>(method: string, path: string, accessToken: string | un
     if (err.blocked) window.dispatchEvent(new CustomEvent(ACCOUNT_BLOCKED_EVENT, { detail: err.blocked }));
     throw err;
   }
+  if (res.status === 204) return undefined as T; // no body (e.g. a delete)
   return res.json() as Promise<T>;
 }
 

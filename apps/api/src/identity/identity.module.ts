@@ -5,6 +5,7 @@ import { ACCOUNT_STATUS, MFA_LOOKUP } from '../auth/auth.types';
 import { CognitoUserDirectory } from '../admin/users/cognito-user-directory';
 import { DbUserDirectory } from '../admin/users/db-user-directory';
 import { USER_STORE } from '../db/database.module';
+import { RESUME_FILES, ResumeFiles } from '../resumes/resume-files';
 import { UserStore } from '../db/user-store';
 import { USER_DIRECTORY, UserDirectory } from '../admin/users/user.types';
 import { loadConfig } from '../config/config';
@@ -22,14 +23,14 @@ const logger = new Logger('Identity');
   providers: [
     {
       provide: USER_DIRECTORY,
-      inject: [USER_STORE],
-      useFactory: (store: UserStore) => {
+      inject: [USER_STORE, RESUME_FILES],
+      useFactory: (store: UserStore, files: ResumeFiles) => {
         const { cognito } = loadConfig();
         // Credentials come from the default chain: your AWS profile locally,
         // the ECS task role in AWS. Region is the prefix of the pool id.
         const region = cognito.userPoolId.split('_')[0];
         const pool = new CognitoUserDirectory(new CognitoIdentityProviderClient({ region }), cognito.userPoolId);
-        const directory = new DbUserDirectory(store, pool);
+        const directory = new DbUserDirectory(store, pool, (id) => files.deleteAllForUser(id));
         if (process.env.SYNC_USERS_ON_START === 'true') {
           // Background, so startup isn't blocked; users are also added lazily when first seen.
           directory

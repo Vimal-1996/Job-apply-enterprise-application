@@ -73,7 +73,7 @@ jobs:
           docker run -d --name api --network host \
             -e COGNITO_USER_POOL_ID=us-east-1_ci -e COGNITO_CLIENT_ID=ci \
             -e DB_HOST=localhost -e DB_NAME=jobapply -e DB_USER=postgres -e DB_PASSWORD=postgres -e DB_SSL=disable \
-            -e API_BASE_PATH=/api -e TRUST_PROXY_HOPS=2 \
+            -e API_BASE_PATH=/api -e TRUST_PROXY_HOPS=2 -e USER_FILES_BUCKET=ci-user-files \
             job-apply-api:ci
           for i in $(seq 1 30); do curl -sf http://localhost:3000/api/health && exit 0; sleep 1; done
           docker logs api; exit 1
@@ -83,7 +83,8 @@ jobs:
           test "$(curl -s http://localhost:3000/api/health)" = '{"status":"ok"}'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/me)" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/health)" = 404   # only under /api
-          test "$(PGPASSWORD=postgres psql -h localhost -U postgres -d jobapply -tAc 'SELECT version FROM schema_migrations')" = 001_app_user.sql
+          # Every migration in the image was applied, in order.
+          test "$(PGPASSWORD=postgres psql -h localhost -U postgres -d jobapply -tAc "SELECT string_agg(version, ',' ORDER BY version) FROM schema_migrations")" = "$(ls db/migrations/*.sql | xargs -n1 basename | sort | paste -sd, -)"
       - name: Container logs
         if: always()
         run: docker logs api || true
