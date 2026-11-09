@@ -86,6 +86,7 @@ function fakeFiles() {
     presignUpload: jest.fn(async (key: string) => ({ url: 'https://s3.example/bucket', fields: { key }, expiresInSeconds: 300 })),
     head: jest.fn(async (key: string) => (objects.has(key) ? { size: objects.get(key)!.body.length } : null)),
     readStart: jest.fn(async (key: string, n: number) => objects.get(key)!.body.subarray(0, n)),
+    read: jest.fn(async (key: string) => objects.get(key)!.body),
     markReady: jest.fn(async (key: string) => void (objects.get(key)!.tag = 'ready')),
     presignDownload: jest.fn(async (key: string, name: string) => `https://s3.example/${key}?name=${name}`),
     delete: jest.fn(async (key: string) => void objects.delete(key)),
@@ -182,6 +183,25 @@ describe('ResumesService', () => {
       url: `https://s3.example/users/u1/${r.id}?name=Jane CV.pdf`,
       expiresInSeconds: 60,
     });
+  });
+
+  it('tells listeners about a newly verified resume, once, and reads the current file back', async () => {
+    const { service, upload } = await setup();
+    const heard: string[] = [];
+    service.onResumeReady((userId, r) => {
+      heard.push(`${userId}:${r.fileName}`);
+    });
+    service.onResumeReady(() => {
+      throw new Error('a broken listener must not fail the upload');
+    });
+    const r = await upload('u1', 'Jane CV.pdf');
+    await service.complete('u1', r.id); // completing again is a no-op
+    expect(heard).toEqual(['u1:Jane CV.pdf']);
+
+    expect(await service.readCurrent('u2')).toBeNull();
+    const current = await service.readCurrent('u1');
+    expect(current?.resume.id).toBe(r.id);
+    expect(current?.bytes.equals(pdfBytes)).toBe(true);
   });
 
   it('limits unfinished upload requests per hour', async () => {

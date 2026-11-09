@@ -17,7 +17,14 @@ describe('loadConfig', () => {
       signup: { perIpPerHour: 5, perDay: 30 },
       database: { kind: 'memory' },
       userFiles: { bucket: 'b', region: 'p' },
+      ai: { enabled: false, model: 'claude-opus-5-5' },
     });
+  });
+
+  it('turns AI on only when an API key is set, and reads the model', () => {
+    const base = { COGNITO_USER_POOL_ID: 'p', COGNITO_CLIENT_ID: 'c', DATABASE_URL: 'memory', USER_FILES_BUCKET: 'b' };
+    expect(loadConfig({ ...base, ANTHROPIC_API_KEY: 'k' }).ai).toEqual({ enabled: true, model: 'claude-opus-5-5' });
+    expect(loadConfig({ ...base, ANTHROPIC_API_KEY: 'k', AI_MODEL: 'claude-sonnet-5-5' }).ai.model).toBe('claude-sonnet-5-5');
   });
 
   it('reads sign-up limits, rejecting nonsense', () => {
