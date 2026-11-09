@@ -44,4 +44,6 @@ async function request<T>(method: string, path: string, accessToken: string | un
 export const apiGet = <T>(path: string, accessToken: string | undefined) => request<T>('GET', path, accessToken);
 export const apiPost = <T>(path: string, accessToken: string | undefined, body?: unknown) =>
   request<T>('POST', path, accessToken, body);
+export const apiPut = <T>(path: string, accessToken: string | undefined, body: unknown) =>
+  request<T>('PUT', path, accessToken, body);
 export const apiDelete = <T>(path: string, accessToken: string | undefined) => request<T>('DELETE', path, accessToken);

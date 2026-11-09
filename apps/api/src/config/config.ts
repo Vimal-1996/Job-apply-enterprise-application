@@ -11,6 +11,11 @@ export interface AppConfig {
   database: DatabaseConfig;
   /** Private bucket for users' files (resumes). Region defaults to the user pool's. */
   userFiles: { bucket: string; region: string };
+  /**
+   * Claude, for reading resumes and (later) matching jobs. Off when no
+   * ANTHROPIC_API_KEY is set: the app still runs, AI features say so.
+   */
+  ai: { enabled: boolean; model: string };
 }
 
 /**
@@ -104,6 +109,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       bucket: get('USER_FILES_BUCKET'),
       region: env.AWS_REGION || get('COGNITO_USER_POOL_ID').split('_')[0],
     },
+    ai: { enabled: Boolean(env.ANTHROPIC_API_KEY), model: env.AI_MODEL || 'claude-opus-5-5' },
   };
 }
 

@@ -15,6 +15,12 @@ import { ResumeRow, ResumeStore } from './resume-store';
 
 export const RESUME_STORE = Symbol('RESUME_STORE');
 
+/**
+ * Called after a new upload is verified and has become the current resume.
+ * The upload's reply waits for it, so it should only start slow work, not do it.
+ */
+export type ResumeReadyListener = (userId: string, resume: ResumeView) => Promise<void> | void;
+
 export const MAX_BYTES = 5 * 1024 * 1024;
 export const KEEP_VERSIONS = 5;
 /** Upload links a user may request per hour without finishing them. */
@@ -84,11 +90,24 @@ export function looksLike(contentType: ResumeContentType, start: Buffer): boolea
 @Injectable()
 export class ResumesService {
   private readonly logger = new Logger(ResumesService.name);
+  private readonly readyListeners: ResumeReadyListener[] = [];
 
   constructor(
     @Inject(RESUME_STORE) private readonly store: ResumeStore,
     @Inject(RESUME_FILES) private readonly files: ResumeFiles,
   ) {}
+
+  /** Lets another module react to new resumes (e.g. read it into a profile) without a circular dependency. */
+  onResumeReady(listener: ResumeReadyListener): void {
+    this.readyListeners.push(listener);
+  }
+
+  /** The current resume's record and file, or null if the user has none. */
+  async readCurrent(userId: string): Promise<{ resume: ResumeView; bytes: Buffer } | null> {
+    const row = (await this.store.list(userId, 'ready')).find((r) => r.isCurrent);
+    if (!row) return null;
+    return { resume: toView(row), bytes: await this.files.read(row.s3Key) };
+  }
 
   async list(userId: string): Promise<ResumeView[]> {
     const ready = await this.store.list(userId, 'ready');
@@ -137,7 +156,15 @@ export class ResumesService {
     await this.files.markReady(row.s3Key);
     await this.store.markReadyAndCurrent(userId, id, stored.size);
     await this.trimHistory(userId);
-    return toView((await this.store.get(userId, id))!);
+    const view = toView((await this.store.get(userId, id))!);
+    for (const listener of this.readyListeners) {
+      try {
+        await listener(userId, view);
+      } catch (e) {
+        this.logger.error(`Resume-ready listener failed: ${(e as Error).message}`);
+      }
+    }
+    return view;
   }
 
   async downloadLink(userId: string, id: string): Promise<{ url: string; expiresInSeconds: number }> {

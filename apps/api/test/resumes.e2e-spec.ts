@@ -23,6 +23,7 @@ describe('resumes (e2e)', () => {
     presignUpload: async (key, contentType) => ({ url: 'https://s3.example/b', fields: { key, 'Content-Type': contentType }, expiresInSeconds: 300 }),
     head: async (key) => (objects.has(key) ? { size: objects.get(key)!.length } : null),
     readStart: async (key, n) => objects.get(key)!.subarray(0, n),
+    read: async (key) => objects.get(key)!,
     markReady: async () => undefined,
     presignDownload: async (key) => `https://s3.example/${key}?signed`,
     delete: async (key) => void objects.delete(key),

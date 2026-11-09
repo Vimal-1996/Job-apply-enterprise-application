@@ -32,6 +32,8 @@ export interface ResumeFiles {
   head(key: string): Promise<{ size: number } | null>;
   /** The first `bytes` bytes, to check what the file really is. */
   readStart(key: string, bytes: number): Promise<Buffer>;
+  /** The whole file (resumes are at most a few MB). */
+  read(key: string): Promise<Buffer>;
   /** Marks a verified file so the abandoned-upload rule leaves it alone. */
   markReady(key: string): Promise<void>;
   /** A short-lived link that downloads the file as an attachment under `fileName`. */
@@ -87,6 +89,11 @@ export class S3ResumeFiles implements ResumeFiles {
 
   async readStart(key: string, bytes: number): Promise<Buffer> {
     const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key, Range: `bytes=0-${bytes - 1}` }));
+    return Buffer.from(await res.Body!.transformToByteArray());
+  }
+
+  async read(key: string): Promise<Buffer> {
+    const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
     return Buffer.from(await res.Body!.transformToByteArray());
   }
 

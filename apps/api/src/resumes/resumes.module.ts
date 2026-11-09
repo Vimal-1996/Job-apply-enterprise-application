@@ -10,7 +10,7 @@ import { ResumesController } from './resumes.controller';
 
 /**
  * Users' resumes. Global so the identity module can delete a user's files when
- * their account is removed for good.
+ * their account is removed for good, and the profile module can read them.
  */
 @Global()
 @Module({
@@ -27,6 +27,6 @@ import { ResumesController } from './resumes.controller';
       },
     },
   ],
-  exports: [RESUME_FILES],
+  exports: [RESUME_FILES, ResumesService],
 })
 export class ResumesModule {}
