@@ -45,6 +45,8 @@ export class ProfileService implements OnModuleInit {
   private readonly logger = new Logger(ProfileService.name);
   /** Readings running in this process, by user; tests await them. */
   private readonly running = new Map<string, Promise<void>>();
+  /** `readIfMissing` checks in progress, by user, so simultaneous calls start one reading. */
+  private readonly checking = new Map<string, Promise<boolean>>();
 
   constructor(
     @Inject(PROFILE_STORE) private readonly store: ProfileStore,
@@ -120,6 +122,34 @@ export class ProfileService implements OnModuleInit {
     });
     this.running.set(userId, run);
     return this.get(userId);
+  }
+
+  /**
+   * Reads the current resume if the user has one but no profile yet, e.g. one
+   * uploaded before profiles existed. Runs on sign-in. Once any profile exists
+   * (read, failed or typed in) this does nothing, so each user gets at most one
+   * automatic reading and a failure is never retried by itself. Returns whether
+   * it started a reading.
+   */
+  readIfMissing(userId: string): Promise<boolean> {
+    const inFlight = this.checking.get(userId);
+    if (inFlight) return inFlight;
+    const check = (async () => {
+      if (!this.extractor) return false;
+      if (await this.store.get(userId)) return false;
+      if (!(await this.resumes.hasCurrent(userId))) return false;
+      try {
+        await this.parseCurrentResume(userId);
+        this.logger.log('Started reading an existing resume into a new profile');
+        return true;
+      } catch (e) {
+        // A reading started some other way in the meantime: nothing to do.
+        if (e instanceof ConflictException) return false;
+        throw e;
+      }
+    })().finally(() => this.checking.delete(userId));
+    this.checking.set(userId, check);
+    return check;
   }
 
   /** Resolves when the user's reading (if any) has finished. For tests. */

@@ -102,6 +102,11 @@ export class ResumesService {
     this.readyListeners.push(listener);
   }
 
+  /** Whether the user has a current resume; cheap (doesn't fetch the file). */
+  async hasCurrent(userId: string): Promise<boolean> {
+    return (await this.store.list(userId, 'ready')).some((r) => r.isCurrent);
+  }
+
   /** The current resume's record and file, or null if the user has none. */
   async readCurrent(userId: string): Promise<{ resume: ResumeView; bytes: Buffer } | null> {
     const row = (await this.store.list(userId, 'ready')).find((r) => r.isCurrent);
