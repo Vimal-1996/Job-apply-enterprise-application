@@ -12,6 +12,7 @@ import { Callback } from './pages/Callback';
 import { Dashboard } from './pages/Dashboard';
 import { Landing } from './pages/Landing';
 import { NotFound } from './pages/NotFound';
+import { ApplicationsPage } from './pages/jobs/ApplicationsPage';
 import { JobDetailPage } from './pages/jobs/JobDetailPage';
 import { JobsPage } from './pages/jobs/JobsPage';
 import { TailorResumePage } from './pages/jobs/TailorResumePage';
@@ -50,11 +51,7 @@ function Shell() {
           {isJobSeeker && <NavLink to="/resume">Resume</NavLink>}
           {isJobSeeker && <NavLink to="/profile">Profile</NavLink>}
           {isJobSeeker && <NavLink to="/jobs">Jobs</NavLink>}
-          {isJobSeeker && (
-            <a aria-disabled title="Coming soon">
-              <span className="label-long">Applications</span> <span className="soon">soon</span>
-            </a>
-          )}
+          {isJobSeeker && <NavLink to="/applications">Applications</NavLink>}
           {isAdmin && (
             <NavLink to="/admin">
               Admin <span className="soon admin-tag">admin</span>
@@ -117,6 +114,7 @@ export function App() {
         <Route path="/resume" element={<ResumePage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/jobs" element={<JobsPage />} />
+        <Route path="/applications" element={<ApplicationsPage />} />
         <Route path="/jobs/:id" element={<JobDetailPage />} />
         <Route path="/jobs/:id/resume" element={<TailorResumePage />} />
       </Route>

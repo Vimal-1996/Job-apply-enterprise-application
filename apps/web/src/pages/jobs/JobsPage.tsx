@@ -5,6 +5,7 @@ import { ApiError, apiGet, apiPost } from '../../api/client';
 import type { JobSummary, JobView } from '../../api/types';
 import { Badge, Spinner } from '../../components/ui';
 import { formatDate } from '../admin/format';
+import { statusInfo } from './applicationView';
 import { jobTitle, newJobRequest, sortJobs, sourceLabel, verdictLabel } from './jobView';
 
 /** How often to check while a job is being matched. */
@@ -147,6 +148,7 @@ function JobTable({ jobs }: { jobs: JobSummary[] }) {
           <tr>
             <th>Job</th>
             <th>Match</th>
+            <th>Stage</th>
             <th>Added</th>
           </tr>
         </thead>
@@ -169,6 +171,9 @@ function JobTable({ jobs }: { jobs: JobSummary[] }) {
               </td>
               <td>
                 <MatchBadge job={j} />
+              </td>
+              <td>
+                <Badge tone={statusInfo(j.applicationStatus).tone}>{statusInfo(j.applicationStatus).label}</Badge>
               </td>
               <td className="muted" style={{ whiteSpace: 'nowrap' }}>
                 {formatDate(j.createdAt)}

@@ -86,6 +86,7 @@ describe('jobs (e2e)', () => {
       get: (p: string) => auth(request(server).get(p)),
       post: (p: string, body?: object) => auth(request(server).post(p)).send(body ?? {}),
       put: (p: string, body: unknown) => auth(request(server).put(p)).send(body as object),
+      patch: (p: string, body: unknown) => auth(request(server).patch(p)).send(body as object),
       delete: (p: string) => auth(request(server).delete(p)),
     };
   };
@@ -122,6 +123,12 @@ describe('jobs (e2e)', () => {
 
     expect((await as('jane-token').post(`/jobs/${id}/match`).expect(202)).body.matchStatus).toBe('matching');
     await app.get(JobsService).whenIdle();
+
+    const tracked = await as('jane-token').patch(`/jobs/${id}/application`, { status: 'applied', notes: 'Applied on the company site' }).expect(200);
+    expect(tracked.body).toMatchObject({ applicationStatus: 'applied', notes: 'Applied on the company site' });
+    expect(tracked.body.timeline.map((t: { status: string }) => t.status)).toEqual(['saved', 'applied']);
+    await as('jane-token').patch(`/jobs/${id}/application`, { status: 'hired' }).expect(400);
+    await as('bob-token').patch(`/jobs/${id}/application`, { status: 'offer' }).expect(404);
 
     await as('jane-token').delete(`/jobs/${id}`).expect(204);
     await as('jane-token').get(`/jobs/${id}`).expect(404);

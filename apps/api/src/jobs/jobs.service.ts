@@ -14,7 +14,7 @@ import { ProfileService } from '../profile/profile.service';
 import { CandidateProfile, JobPreferences } from '../profile/profile.schema';
 import { JobLink, JobLinkError, parseJobLink } from './job-link';
 import { JOB_MATCHER, JobMatcher, MatchError } from './job-matcher';
-import { JobRow, JobRowSource, JobStore, MatchStatus } from './job-store';
+import { APPLICATION_STATUSES, ApplicationStatus, JobRow, JobRowSource, JobStore, MatchStatus } from './job-store';
 import { JobDetails, JobMatch } from './job.schema';
 
 export const JOB_STORE = Symbol('JOB_STORE');
@@ -56,6 +56,33 @@ export function parseNewJob(body: unknown): NewJobRequest {
   return { link, description };
 }
 
+export const NOTES_MAX = 5000;
+
+export interface ApplicationUpdate {
+  status?: ApplicationStatus;
+  notes?: string | null;
+}
+
+/** Validates the body of PATCH /jobs/:id/application: `{ status?, notes? }`. */
+export function parseApplicationUpdate(body: unknown): ApplicationUpdate {
+  const b = (body ?? {}) as Record<string, unknown>;
+  if (typeof b !== 'object' || Array.isArray(b)) throw new BadRequestException('Send the update as JSON');
+  const out: ApplicationUpdate = {};
+  if (b.status !== undefined) {
+    if (!APPLICATION_STATUSES.includes(b.status as ApplicationStatus)) {
+      throw new BadRequestException(`status must be one of: ${APPLICATION_STATUSES.join(', ')}`);
+    }
+    out.status = b.status as ApplicationStatus;
+  }
+  if (b.notes !== undefined) {
+    if (b.notes !== null && typeof b.notes !== 'string') throw new BadRequestException('notes must be text');
+    if (typeof b.notes === 'string' && b.notes.length > NOTES_MAX) throw new BadRequestException(`Keep notes under ${NOTES_MAX.toLocaleString('en')} characters`);
+    out.notes = typeof b.notes === 'string' && b.notes.trim() ? b.notes.trim() : null;
+  }
+  if (out.status === undefined && out.notes === undefined) throw new BadRequestException('Send a status or notes to update');
+  return out;
+}
+
 export interface JobSummary {
   id: string;
   source: JobRowSource;
@@ -66,6 +93,9 @@ export interface JobSummary {
   matchStatus: MatchStatus;
   score: number | null;
   verdict: JobMatch['verdict'] | null;
+  applicationStatus: ApplicationStatus;
+  /** When the status last changed; null while it's still the initial 'saved'. */
+  statusChangedAt: string | null;
   createdAt: string;
 }
 
@@ -77,6 +107,9 @@ export interface JobView extends JobSummary {
   matchedAt: string | null;
   /** The profile was read or edited after this job was matched, so the match may be out of date. */
   profileChanged: boolean;
+  notes: string | null;
+  /** Status changes, oldest first, starting with when the job was saved. */
+  timeline: { status: ApplicationStatus; at: string }[];
 }
 
 @Injectable()
@@ -139,6 +172,12 @@ export class JobsService {
     return this.get(userId, id);
   }
 
+  /** Records where the user is with this job: its status and/or private notes. */
+  async updateApplication(userId: string, id: string, update: ApplicationUpdate): Promise<JobView> {
+    if (!(await this.store.updateApplication(userId, id, randomUUID(), update))) throw new NotFoundException('Job not found');
+    return this.get(userId, id);
+  }
+
   async delete(userId: string, id: string): Promise<void> {
     if (!(await this.store.delete(userId, id))) throw new NotFoundException('Job not found');
   }
@@ -190,6 +229,11 @@ export class JobsService {
       matchError: row.matchError,
       matchedAt: row.matchedAt?.toISOString() ?? null,
       profileChanged,
+      notes: row.notes,
+      timeline: [
+        { status: 'saved' as const, at: row.createdAt.toISOString() },
+        ...(await this.store.events(userId, row.id)).map((e) => ({ status: e.status, at: e.at.toISOString() })),
+      ],
     };
   }
 }
@@ -211,6 +255,8 @@ function summary(row: JobRow): JobSummary {
     matchStatus: row.matchStatus,
     score: row.match?.score ?? null,
     verdict: row.match?.verdict ?? null,
+    applicationStatus: row.applicationStatus,
+    statusChangedAt: row.statusChangedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }

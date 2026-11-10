@@ -2,14 +2,24 @@ import { useEffect, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link } from 'react-router-dom';
 import { apiGet } from '../api/client';
-import type { Resume } from '../api/types';
+import type { JobSummary, Resume } from '../api/types';
 import { ApiCheck } from '../components/ApiCheck';
+import { pipelineCounts } from './jobs/applicationView';
 
-const STATS = [
-  { label: 'Applications tracked', value: '0' },
-  { label: 'Drafts awaiting review', value: '0' },
-  { label: 'Agent runs this week', value: '0' },
-];
+/** The user's jobs (null while loading or if the API is unreachable). */
+function useJobs(token: string | undefined): JobSummary[] | null {
+  const [jobs, setJobs] = useState<JobSummary[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<JobSummary[]>('/jobs', token)
+      .then((j) => !cancelled && setJobs(j))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+  return jobs;
+}
 
 /** Whether the user has a resume yet (null while loading or if the API is unreachable). */
 function useHasResume(token: string | undefined): boolean | null {
@@ -30,11 +40,19 @@ export function Dashboard() {
   const auth = useAuth();
   const name = auth.user?.profile.email?.split('@')[0] ?? 'there';
   const hasResume = useHasResume(auth.user?.access_token);
+  const jobs = useJobs(auth.user?.access_token);
+  const c = jobs ? pipelineCounts(jobs) : null;
+  const show = (n: number | undefined) => (n === undefined ? '–' : String(n));
+  const STATS = [
+    { label: 'Jobs saved', value: show(jobs?.length), to: '/jobs' },
+    { label: 'Applied', value: show(c?.applied), to: '/applications' },
+    { label: 'Interviewing', value: show(c?.interviewing), to: '/applications' },
+  ];
   const STEPS = [
     { label: 'Create your account', done: true },
     { label: 'Upload your resume', done: hasResume === true, to: '/resume' },
-    { label: 'Connect a job source', done: false },
-    { label: 'Schedule your first agent run', done: false },
+    { label: 'Add a job and see your match', done: (jobs?.length ?? 0) > 0, to: '/jobs' },
+    { label: 'Mark a job as applied', done: (c?.applied ?? 0) > 0, to: '/applications' },
   ];
 
   return (
@@ -46,10 +64,10 @@ export function Dashboard() {
 
       <div className="grid">
         {STATS.map((s) => (
-          <div key={s.label} className="card stat">
+          <Link key={s.label} to={s.to} className="card stat stat-link">
             <div className="value">{s.value}</div>
             <div className="label">{s.label}</div>
-          </div>
+          </Link>
         ))}
       </div>
 

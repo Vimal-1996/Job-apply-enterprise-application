@@ -100,6 +100,7 @@ export interface JobPreferences {
 export type JobSource = 'linkedin' | 'indeed' | 'other' | 'pasted';
 export type MatchStatus = 'matching' | 'ready' | 'failed';
 export type MatchVerdict = 'strong' | 'good' | 'possible' | 'weak';
+export type ApplicationStatus = 'saved' | 'applied' | 'interviewing' | 'offer' | 'rejected' | 'withdrawn';
 
 export interface JobSummary {
   id: string;
@@ -111,6 +112,8 @@ export interface JobSummary {
   matchStatus: MatchStatus;
   score: number | null;
   verdict: MatchVerdict | null;
+  applicationStatus: ApplicationStatus;
+  statusChangedAt: string | null;
   createdAt: string;
 }
 
@@ -150,6 +153,8 @@ export interface JobView extends JobSummary {
   matchedAt: string | null;
   /** The profile changed after this job was matched, so the match may be out of date. */
   profileChanged: boolean;
+  notes: string | null;
+  timeline: { status: ApplicationStatus; at: string }[];
 }
 
 export type SuggestionKind = 'summary' | 'headline' | 'add_skill' | 'rewrite_bullet' | 'add_bullet';
