@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { ApplicationStatus } from '../jobs/job-store';
 import { EmailCategory } from './email.schema';
+import { fromStored, TimeRange, toStored } from './read-ranges';
 
 export type ConnectionStatus = 'connected' | 'expired';
 export type SyncStatus = 'idle' | 'syncing' | 'failed';
@@ -19,6 +20,8 @@ export interface ConnectionRow {
   syncStartedAt: Date | null;
   lastSyncedAt: Date | null;
   connectedAt: Date;
+  /** What's been read from Gmail so far, merged. */
+  readRanges: TimeRange[];
 }
 
 export interface EmailRow {
@@ -45,7 +48,7 @@ export interface EmailRow {
 
 export type NewEmail = Omit<EmailRow, 'createdAt'>;
 
-const CONNECTION = `user_id, email, refresh_token_enc, scopes, status, sync_status, sync_run_id, sync_error, sync_started_at, last_synced_at, connected_at`;
+const CONNECTION = `user_id, email, refresh_token_enc, scopes, status, sync_status, sync_run_id, sync_error, sync_started_at, last_synced_at, connected_at, read_ranges`;
 const EMAIL = `id, user_id, gmail_id, thread_id, from_name, from_address, subject, received_at, job_related, category, summary, action, action_due,
   company, job_id, link_source, suggested_status, suggestion_state, created_at`;
 
@@ -64,6 +67,7 @@ function toConnection(r: Record<string, unknown>): ConnectionRow {
     syncStartedAt: date(r.sync_started_at),
     lastSyncedAt: date(r.last_synced_at),
     connectedAt: new Date(r.connected_at as string),
+    readRanges: fromStored(typeof r.read_ranges === 'string' ? JSON.parse(r.read_ranges) : r.read_ranges),
   };
 }
 
@@ -162,9 +166,14 @@ export class InboxStore {
     );
   }
 
-  async knownGmailIds(userId: string): Promise<Set<string>> {
-    const { rows } = await this.pool.query('SELECT gmail_id FROM inbox_email WHERE user_id = $1', [userId]);
-    return new Set(rows.map((r) => r.gmail_id as string));
+  /** Every email already read for the user, with when it was received. */
+  async knownGmailIds(userId: string): Promise<Map<string, Date>> {
+    const { rows } = await this.pool.query('SELECT gmail_id, received_at FROM inbox_email WHERE user_id = $1', [userId]);
+    return new Map(rows.map((r) => [r.gmail_id as string, new Date(r.received_at as string)]));
+  }
+
+  async setReadRanges(userId: string, ranges: TimeRange[]): Promise<void> {
+    await this.pool.query('UPDATE gmail_connection SET read_ranges = $2 WHERE user_id = $1', [userId, JSON.stringify(toStored(ranges))]);
   }
 
   /** How many emails were read for the user since `since` (each one costs a little Claude time). */
@@ -220,14 +229,15 @@ export class InboxStore {
     );
   }
 
-  /** The user's job emails (not the ones found not to be about a job), newest first; optionally only one job's. */
-  async list(userId: string, jobId?: string): Promise<EmailRow[]> {
-    const { rows } = jobId
-      ? await this.pool.query(`SELECT ${EMAIL} FROM inbox_email WHERE user_id = $1 AND job_related = true AND job_id = $2 ORDER BY received_at DESC, id`, [
-          userId,
-          jobId,
-        ])
-      : await this.pool.query(`SELECT ${EMAIL} FROM inbox_email WHERE user_id = $1 AND job_related = true ORDER BY received_at DESC, id`, [userId]);
+  /** The user's job emails (not the ones found not to be about a job), newest first; optionally one job's, or a time window. */
+  async list(userId: string, filter: { jobId?: string; since?: Date; until?: Date } = {}): Promise<EmailRow[]> {
+    const where = ['user_id = $1', 'job_related = true'];
+    const args: unknown[] = [userId];
+    const param = (v: unknown) => `$${args.push(v)}`;
+    if (filter.jobId) where.push(`job_id = ${param(filter.jobId)}`);
+    if (filter.since) where.push(`received_at >= ${param(filter.since)}`);
+    if (filter.until) where.push(`received_at < ${param(filter.until)}`);
+    const { rows } = await this.pool.query(`SELECT ${EMAIL} FROM inbox_email WHERE ${where.join(' AND ')} ORDER BY received_at DESC, id`, args);
     return rows.map(toEmail);
   }
 

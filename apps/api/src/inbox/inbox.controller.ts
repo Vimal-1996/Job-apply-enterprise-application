@@ -1,13 +1,34 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators';
-import { InboxService } from './inbox.service';
+import { INBOX_LIMITS, InboxService } from './inbox.service';
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function uuid(id: string, what: string): string {
   if (!ID.test(id)) throw new BadRequestException(`Invalid ${what} id`);
   return id;
+}
+
+/** An ISO date-time from the query or body, or undefined; anything else is a 400. */
+function instant(v: unknown, name: string): Date | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  const t = typeof v === 'string' ? Date.parse(v) : NaN;
+  if (!Number.isFinite(t)) throw new BadRequestException(`${name} must be an ISO date-time`);
+  return new Date(t);
+}
+
+/** A [since, until) window: both or neither, in order, and not too far back. */
+export function parseWindow(sinceRaw: unknown, untilRaw: unknown): { since: Date; until: Date } | undefined {
+  const since = instant(sinceRaw, 'since');
+  const until = instant(untilRaw, 'until');
+  if (!since && !until) return undefined;
+  if (!since || !until) throw new BadRequestException('Send both since and until');
+  if (since >= until) throw new BadRequestException('since must be before until');
+  if (since.getTime() < Date.now() - INBOX_LIMITS.maxDaysBack * 24 * 60 * 60_000) {
+    throw new BadRequestException(`Dates can go back at most ${INBOX_LIMITS.maxDaysBack / 365} years`);
+  }
+  return { since, until };
 }
 
 const obj = (body: unknown): Record<string, unknown> => {
@@ -20,10 +41,10 @@ const obj = (body: unknown): Record<string, unknown> => {
 export class InboxController {
   constructor(private readonly inbox: InboxService) {}
 
-  /** The connection and job emails, newest first. `?jobId=` for one job's emails. */
+  /** The connection and emails about the user's applications, newest first. `?jobId=` for one job's; `?since=&until=` (ISO) for a time window. */
   @Get()
-  view(@CurrentUser() user: AuthUser, @Query('jobId') jobId?: string) {
-    return this.inbox.view(user.id, jobId ? uuid(jobId, 'job') : undefined);
+  view(@CurrentUser() user: AuthUser, @Query('jobId') jobId?: string, @Query('since') since?: string, @Query('until') until?: string) {
+    return this.inbox.view(user.id, { jobId: jobId ? uuid(jobId, 'job') : undefined, ...parseWindow(since, until) });
   }
 
   /** Where to send the user to allow access: `{ url }` of Google's consent page. */
@@ -48,11 +69,12 @@ export class InboxController {
     return this.inbox.disconnect(user.id);
   }
 
-  /** Reads new job emails in the background. Poll GET /inbox. */
+  /** Reads job emails in the background: new mail, or `{ since, until }` (ISO) for a date range. Poll GET /inbox. */
   @Post('sync')
   @HttpCode(202)
-  sync(@CurrentUser() user: AuthUser) {
-    return this.inbox.sync(user.id);
+  sync(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+    return this.inbox.sync(user.id, parseWindow(b.since, b.until));
   }
 
   /** The email's text, fetched from Gmail (not stored). */
