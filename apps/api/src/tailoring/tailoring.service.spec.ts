@@ -346,6 +346,20 @@ describe('TailoringService', () => {
     await expect(service.start('u1', jobId)).rejects.toThrow('up to 20 resumes a day');
   });
 
+  it('saves decisions only against the current set of suggestions', async () => {
+    const { service, store, addJob } = await setup();
+    const jobId = await addJob();
+    await service.start('u1', jobId);
+    await service.whenIdle();
+    const first = (await store.get('u1', jobId))!;
+    await service.start('u1', jobId); // a new set replaces the first
+    await service.whenIdle();
+    const second = (await store.get('u1', jobId))!;
+    expect(second.suggestionsId).not.toBe(first.suggestionsId);
+    expect(await store.saveSuggestions('u1', jobId, first.suggestionsId!, first.suggestions!)).toBe(false);
+    expect(await store.saveSuggestions('u1', jobId, second.suggestionsId!, second.suggestions!)).toBe(true);
+  });
+
   it('is removed with its job', async () => {
     const { service, jobs, store, addJob } = await setup();
     const jobId = await addJob();

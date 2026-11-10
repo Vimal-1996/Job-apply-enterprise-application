@@ -14,6 +14,9 @@ CREATE TABLE resume_draft (
   base_profile jsonb,
   -- The suggestions, each with the user's decision and any edit.
   suggestions  jsonb,
+  -- Identifies the current set of suggestions: decisions are saved only against
+  -- it, so a choice made on an old page can't land on a newer set.
+  suggestions_id text,
   error        text,
   suggested_at timestamptz,
   updated_at   timestamptz NOT NULL DEFAULT now()

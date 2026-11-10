@@ -11,12 +11,13 @@ export interface DraftRow {
   runId: string | null;
   baseProfile: CandidateProfile | null;
   suggestions: Suggestion[] | null;
+  suggestionsId: string | null;
   error: string | null;
   suggestedAt: Date | null;
   updatedAt: Date;
 }
 
-const COLUMNS = 'job_id, user_id, status, run_id, base_profile, suggestions, error, suggested_at, updated_at';
+const COLUMNS = 'job_id, user_id, status, run_id, base_profile, suggestions, suggestions_id, error, suggested_at, updated_at';
 const json = (v: unknown) => (typeof v === 'string' ? JSON.parse(v) : (v ?? null));
 
 function toRow(r: Record<string, any>): DraftRow {
@@ -27,6 +28,7 @@ function toRow(r: Record<string, any>): DraftRow {
     runId: r.run_id,
     baseProfile: json(r.base_profile),
     suggestions: json(r.suggestions),
+    suggestionsId: r.suggestions_id,
     error: r.error,
     suggestedAt: r.suggested_at ? new Date(r.suggested_at) : null,
     updatedAt: new Date(r.updated_at),
@@ -78,7 +80,7 @@ export class DraftStore {
   /** Stores finished suggestions. False if a newer run replaced this one, or the job was deleted. */
   async finish(userId: string, jobId: string, runId: string, baseProfile: CandidateProfile, suggestions: Suggestion[]): Promise<boolean> {
     const { rowCount } = await this.pool.query(
-      `UPDATE resume_draft SET status = 'ready', base_profile = $4, suggestions = $5, error = NULL, suggested_at = now(), run_id = NULL, updated_at = now()
+      `UPDATE resume_draft SET status = 'ready', base_profile = $4, suggestions = $5, suggestions_id = $3, error = NULL, suggested_at = now(), run_id = NULL, updated_at = now()
         WHERE user_id = $1 AND job_id = $2 AND run_id = $3`,
       [userId, jobId, runId, JSON.stringify(baseProfile), JSON.stringify(suggestions)],
     );
@@ -93,11 +95,15 @@ export class DraftStore {
     );
   }
 
-  /** Saves the user's decisions, only if the suggestions weren't replaced meanwhile. */
-  async saveSuggestions(userId: string, jobId: string, suggestedAt: Date, suggestions: Suggestion[]): Promise<boolean> {
+  /**
+   * Saves the user's decisions, only if the suggestions weren't replaced
+   * meanwhile. Compared by id, not by timestamp: Postgres keeps microseconds
+   * that a JavaScript Date loses, so a timestamp read back never matches.
+   */
+  async saveSuggestions(userId: string, jobId: string, suggestionsId: string, suggestions: Suggestion[]): Promise<boolean> {
     const { rowCount } = await this.pool.query(
-      `UPDATE resume_draft SET suggestions = $4, updated_at = now() WHERE user_id = $1 AND job_id = $2 AND suggested_at = $3`,
-      [userId, jobId, suggestedAt, JSON.stringify(suggestions)],
+      `UPDATE resume_draft SET suggestions = $4, updated_at = now() WHERE user_id = $1 AND job_id = $2 AND suggestions_id = $3`,
+      [userId, jobId, suggestionsId, JSON.stringify(suggestions)],
     );
     return rowCount === 1;
   }

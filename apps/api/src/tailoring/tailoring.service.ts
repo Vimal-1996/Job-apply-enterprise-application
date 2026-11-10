@@ -92,7 +92,7 @@ export class TailoringService {
   async decide(userId: string, jobId: string, updates: DecisionUpdate[]): Promise<DraftView> {
     await this.jobs.get(userId, jobId);
     const draft = await this.store.get(userId, jobId);
-    if (!draft?.suggestions || !draft.suggestedAt) throw new ConflictException('There are no suggestions to review yet');
+    if (!draft?.suggestions || !draft.suggestionsId) throw new ConflictException('There are no suggestions to review yet');
     const byId = new Map(draft.suggestions.map((s) => [s.id, s]));
     const unknown = updates.find((u) => !byId.has(u.id));
     if (unknown) throw new BadRequestException('Unknown suggestion. Refresh the page and try again.');
@@ -101,7 +101,7 @@ export class TailoringService {
       if (!u) return s;
       return { ...s, decision: u.decision, editedText: u.editedText === undefined ? s.editedText : u.editedText };
     });
-    if (!(await this.store.saveSuggestions(userId, jobId, draft.suggestedAt, next))) {
+    if (!(await this.store.saveSuggestions(userId, jobId, draft.suggestionsId, next))) {
       throw new ConflictException('These suggestions were replaced. Refresh the page to see the new ones.');
     }
     return this.get(userId, jobId);
