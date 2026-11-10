@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link } from 'react-router-dom';
-import { ApiError, apiGet, apiPost, apiPut } from '../../api/client';
-import type { CandidateProfile, JobPreferences, ProfileView, WorkMode } from '../../api/types';
+import { ApiError, apiDownload, apiGet, apiPost, apiPut } from '../../api/client';
+import type { CandidateProfile, JobPreferences, ProfileView, ResumeCheck, WorkMode } from '../../api/types';
 import { Badge, Spinner } from '../../components/ui';
 import { formatDateTime } from '../admin/format';
+import { ResumeFormat } from '../jobs/ResumeFormat';
 import {
   EMPTY_EDUCATION,
   EMPTY_WORK,
@@ -173,8 +174,58 @@ export function ProfilePage() {
         ) : null}
       </div>
 
+      {view.profile && !editing && <ResumeDownloadCard token={token} version={`${view.parsedAt}|${view.editedAt}`} />}
+
       <PreferencesCard token={token} />
     </>
+  );
+}
+
+/** The profile as a clean Word resume (no tailoring), optionally in the Workday layout. */
+function ResumeDownloadCard({ token, version }: { token: string | undefined; version: string }) {
+  const [workday, setWorkday] = useState(false);
+  const [checks, setChecks] = useState<ResumeCheck[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Checked again whenever the profile is read or edited.
+  useEffect(() => {
+    apiGet<ResumeCheck[]>('/profile/resume-checks', token)
+      .then(setChecks)
+      .catch(() => setChecks([]));
+  }, [token, version]);
+
+  const download = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiDownload(`/profile/document${workday ? '?layout=workday' : ''}`, token, 'Resume.docx');
+    } catch (e) {
+      setError(message(e, 'Could not create the resume.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="row">
+        <h3>Download as a resume</h3>
+        <span className="spacer" />
+        <button className="btn btn-ghost" onClick={() => void download()} disabled={busy}>
+          {busy && <Spinner small />} Download (.docx)
+        </button>
+      </div>
+      <p className="muted" style={{ margin: 0 }}>
+        Your profile as a Word resume. To tailor it to a job, open the job and choose “Tailor my resume”.
+      </p>
+      {error && (
+        <p role="alert" className="notice error">
+          {error}
+        </p>
+      )}
+      <ResumeFormat workday={workday} onChange={setWorkday} checks={checks} />
+    </div>
   );
 }
 

@@ -141,5 +141,21 @@ describe('resume tailoring (e2e)', () => {
     expect(doc.headers['content-type']).toContain('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     expect(doc.headers['content-disposition']).toContain('filename="Jane Doe - Acme resume.docx"');
     expect((doc.body as Buffer).subarray(0, 2).toString()).toBe('PK'); // a .docx is a zip
+    await as('jane-token').get(`${base}/document?layout=workday`).expect(200);
+    await as('jane-token').get(`${base}/document?layout=fancy`).expect(400);
+    expect(Array.isArray(draft.checks)).toBe(true);
+  });
+
+  it("downloads the profile as a resume, in either layout, and lists what's missing", async () => {
+    const server = app.getHttpServer();
+    await request(server).get('/profile/document').expect(401);
+    expect((await as('bob-token').get('/profile/resume-checks').expect(200)).body).toEqual([]);
+    await as('bob-token').get('/profile/document').expect(409);
+
+    const checks = (await as('jane-token').get('/profile/resume-checks').expect(200)).body;
+    expect(checks).toContainEqual({ where: 'Personal details', message: 'Add a phone number: Workday asks for one.' });
+    const doc = await as('jane-token').get('/profile/document?layout=workday').expect(200);
+    expect(doc.headers['content-disposition']).toContain('filename="Jane Doe resume.docx"');
+    await as('jane-token').get('/profile/document?layout=other').expect(400);
   });
 });

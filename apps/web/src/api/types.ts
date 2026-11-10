@@ -175,6 +175,11 @@ export interface Suggestion {
   editedText: string | null;
 }
 
+export interface ResumeCheck {
+  where: string;
+  message: string;
+}
+
 export interface DraftView {
   status: 'none' | 'suggesting' | 'ready' | 'failed';
   suggestions: Suggestion[];
@@ -182,5 +187,6 @@ export interface DraftView {
   error: string | null;
   suggestedAt: string | null;
   profileChanged: boolean;
+  checks: ResumeCheck[];
   aiEnabled: boolean;
 }

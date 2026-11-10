@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Suggestion } from '../../api/types';
-import { acceptAllIds, counts, finalText, suggestionLabel } from './tailorView';
+import { acceptAllIds, counts, finalText, isWorkdayJob, suggestionLabel } from './tailorView';
 
 const s = (over: Partial<Suggestion>): Suggestion => ({
   id: 'a',
@@ -29,6 +29,13 @@ describe('tailorView', () => {
   it("uses the user's edit when there is one", () => {
     expect(finalText(s({ editedText: 'Postgres (PostgreSQL)' }))).toBe('Postgres (PostgreSQL)');
     expect(finalText(s({}))).toBe('PostgreSQL');
+  });
+
+  it('recognises jobs that apply through Workday', () => {
+    expect(isWorkdayJob({ url: null, details: { applyUrl: 'https://acme.wd5.myworkdayjobs.com/en-US/Careers/job/123' } })).toBe(true);
+    expect(isWorkdayJob({ url: 'https://acme.myworkdaysite.com/recruiting/acme/x', applyUrl: null })).toBe(true);
+    expect(isWorkdayJob({ url: 'https://www.linkedin.com/jobs/view/1', applyUrl: 'https://notmyworkdayjobs.com.evil.example/x' })).toBe(false);
+    expect(isWorkdayJob({ url: 'not a url', applyUrl: null })).toBe(false);
   });
 
   it('accepts all only pending suggestions backed by the resume', () => {
