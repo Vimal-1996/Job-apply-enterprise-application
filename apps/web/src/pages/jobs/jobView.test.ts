@@ -5,16 +5,13 @@ const long = 'x'.repeat(DESCRIPTION_MIN);
 
 describe('newJobRequest', () => {
   it('needs a description', () => {
-    expect(newJobRequest('https://x', '   ')).toEqual({ error: 'Paste the job description.' });
+    expect(newJobRequest('   ')).toEqual({ error: 'Paste the job description.' });
   });
   it('rejects a description too short to judge', () => {
-    expect(newJobRequest('', 'Senior engineer')).toHaveProperty('error');
+    expect(newJobRequest('Senior engineer')).toHaveProperty('error');
   });
-  it('trims, and leaves out an empty link', () => {
-    expect(newJobRequest('  ', `  ${long}  `)).toEqual({ body: { description: long } });
-    expect(newJobRequest(' https://www.linkedin.com/jobs/view/1 ', long)).toEqual({
-      body: { link: 'https://www.linkedin.com/jobs/view/1', description: long },
-    });
+  it('trims the description', () => {
+    expect(newJobRequest(`  ${long}  `)).toEqual({ body: { description: long } });
   });
 });
 

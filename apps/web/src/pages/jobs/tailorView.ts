@@ -40,6 +40,32 @@ export function counts(suggestions: Suggestion[]) {
   };
 }
 
+/** Claude's suggestions, without the lines written from the user's answers to gaps (shown with the gaps). */
+export const ownSuggestions = (suggestions: Suggestion[]) => suggestions.filter((s) => !s.gapId);
+
+/**
+ * Where the user is: what's still to review before the resume can be
+ * generated, and how many changes (suggestions and gap answers) it will have.
+ */
+export function tailorProgress(draft: Pick<DraftView, 'suggestions' | 'gaps'>) {
+  const pendingSuggestions = ownSuggestions(draft.suggestions).filter((s) => s.decision === 'pending').length;
+  const pendingGaps = draft.gaps.filter((g) => g.answer === 'pending').length;
+  return {
+    pendingSuggestions,
+    pendingGaps,
+    accepted: draft.suggestions.filter((s) => s.decision === 'accepted').length,
+    done: pendingSuggestions === 0 && pendingGaps === 0,
+  };
+}
+
+/** "3 suggestions and 1 gap", for what's left to review. */
+export function leftToReview(p: { pendingSuggestions: number; pendingGaps: number }): string {
+  const parts = [];
+  if (p.pendingSuggestions) parts.push(`${p.pendingSuggestions} suggestion${p.pendingSuggestions === 1 ? '' : 's'}`);
+  if (p.pendingGaps) parts.push(`${p.pendingGaps} gap${p.pendingGaps === 1 ? '' : 's'}`);
+  return parts.join(' and ');
+}
+
 /**
  * "Accept all" covers only pending suggestions backed by the resume. Anything
  * that needs confirmation (a skill the profile doesn't show) must be confirmed

@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from 'react-oidc-context';
-import { ApiError, apiDownload, apiGet, apiPost, apiPut } from '../../api/client';
+import { ApiError, apiGet, apiPost, apiPut } from '../../api/client';
 import type { CandidateProfile, JobPreferences, ProfileView, WorkMode } from '../../api/types';
 import { Badge, Spinner } from '../../components/ui';
 import { formatDateTime } from '../admin/format';
-import { FormatSelect } from '../jobs/ResumeFormat';
 import { ResumeCard } from '../resume/ResumeCard';
-import { documentUrl, type FileFormat } from '../jobs/tailorView';
 import {
   EMPTY_EDUCATION,
   EMPTY_WORK,
@@ -28,7 +26,7 @@ const POLL_MS = 3000;
 /**
  * The user's resume and everything read from it in one place: the resume file
  * (upload, versions), the profile Claude reads from it (which they can correct),
- * a clean download, and their job preferences.
+ * and their job preferences. Resumes are downloaded tailored, from a job.
  */
 export function ProfilePage() {
   const token = useAuth().user?.access_token;
@@ -187,53 +185,8 @@ export function ProfilePage() {
         ) : null}
       </div>
 
-      {view.profile && !editing && <ResumeDownloadCard token={token} />}
-
       <PreferencesCard token={token} />
     </>
-  );
-}
-
-/** The profile as a clean resume (no tailoring), as a PDF or Word file. */
-function ResumeDownloadCard({ token }: { token: string | undefined }) {
-  const [format, setFormat] = useState<FileFormat>('pdf');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const download = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await apiDownload(documentUrl('/profile/document', { format }), token, `Resume.${format}`);
-    } catch (e) {
-      setError(message(e, 'Could not create the resume.'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="card">
-      <div className="row">
-        <h3>Download as a resume</h3>
-        <span className="spacer" />
-        <div className="row" style={{ gap: 8 }}>
-          <FormatSelect value={format} onChange={setFormat} />
-          <button className="btn btn-ghost" onClick={() => void download()} disabled={busy}>
-            {busy && <Spinner small />} Download
-          </button>
-        </div>
-      </div>
-      <p className="muted" style={{ margin: 0 }}>
-        Your profile as a clean, ATS-friendly resume. To tailor it to a job (and get a Workday-friendly layout), open the job and choose
-        “Tailor my resume”.
-      </p>
-      {error && (
-        <p role="alert" className="notice error">
-          {error}
-        </p>
-      )}
-    </div>
   );
 }
 

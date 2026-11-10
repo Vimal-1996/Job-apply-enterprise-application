@@ -1,15 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link, useParams } from 'react-router-dom';
-import { ApiError, apiDownload, apiGet, apiPatch, apiPost } from '../../api/client';
+import { ApiError, apiDownload, apiGet, apiPatch, apiPost, apiPut } from '../../api/client';
 import type { Decision, DraftView, JobView, Suggestion } from '../../api/types';
 import { Badge, Spinner } from '../../components/ui';
 import { formatDateTime } from '../admin/format';
 import { POLL_MS } from './JobsPage';
 import { jobTitle } from './jobView';
+import { GapsCard, type GapAnswer } from './GapsCard';
 import { FormatSelect, ResumeFormat } from './ResumeFormat';
 import { ScoreCard } from './ScoreCard';
-import { acceptAllIds, counts, documentUrl, finalText, isWorkdayJob, shouldAutoStart, suggestionLabel, type FileFormat } from './tailorView';
+import {
+  acceptAllIds,
+  counts,
+  documentUrl,
+  finalText,
+  isWorkdayJob,
+  ownSuggestions,
+  shouldAutoStart,
+  suggestionLabel,
+  tailorProgress,
+  type FileFormat,
+} from './tailorView';
 
 const message = (e: unknown, fallback: string) => (e instanceof ApiError || e instanceof Error ? e.message : fallback);
 
@@ -20,9 +32,11 @@ interface Update {
 }
 
 /**
- * Tailor the resume to one job: Claude suggests changes, the user accepts,
- * edits or rejects each, then downloads a PDF or Word resume with only the
- * accepted ones. Suggestions start as soon as the page opens.
+ * Tailor the resume to one job, in three steps: review Claude's suggestions
+ * (accept, edit or reject each); answer the job's gaps (describe experience
+ * the resume doesn't show, and Claude writes it up); then generate the
+ * resume, which scores it against the job, and download it as a PDF or Word
+ * file. Suggestions start as soon as the page opens.
  */
 export function TailorResumePage() {
   const { id = '' } = useParams();
@@ -91,7 +105,22 @@ export function TailorResumePage() {
     void start();
   }, [job, draft, start]);
 
-  const scoreResume = () => act(async () => setDraft(await apiPost<DraftView>(`${base}/score`, token)), 'Could not start scoring.');
+  const generate = () => act(async () => setDraft(await apiPost<DraftView>(`${base}/score`, token)), 'Could not generate your resume.');
+
+  /** Answers a gap; true if it was saved (a "yes" waits while Claude writes it up). */
+  const answerGap = async (gapId: string, a: GapAnswer): Promise<boolean> => {
+    setBusy(true);
+    setError(null);
+    try {
+      setDraft(await apiPut<DraftView>(`${base}/gaps/${encodeURIComponent(gapId)}`, token, a));
+      return true;
+    } catch (e) {
+      setError(message(e, 'Could not save your answer.'));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const decide = (updates: Update[]) =>
     act(async () => setDraft(await apiPatch<DraftView>(base, token, { decisions: updates })), 'Could not save your choice.');
@@ -117,10 +146,13 @@ export function TailorResumePage() {
       </div>
     );
 
-  const c = counts(draft.suggestions);
-  const bulk = acceptAllIds(draft.suggestions);
-  const hasSuggestions = draft.suggestions.length > 0;
-  const decided = c.accepted + c.rejected > 0;
+  const own = ownSuggestions(draft.suggestions);
+  const c = counts(own);
+  const bulk = acceptAllIds(own);
+  const hasSuggestions = own.length > 0;
+  const hasResult = hasSuggestions || draft.gaps.length > 0;
+  const decided = c.accepted + c.rejected > 0 || draft.gaps.some((g) => g.answer !== 'pending');
+  const progress = tailorProgress(draft);
 
   return (
     <>
@@ -177,7 +209,7 @@ export function TailorResumePage() {
         <div className="card">
           <p role="alert" className="notice error">
             {draft.error}
-            {hasSuggestions && ' Your previous suggestions are shown below.'}
+            {hasResult && ' Your previous suggestions are shown below.'}
           </p>
           <div>
             <button className="btn btn-ghost" onClick={() => void start()} disabled={busy}>
@@ -187,52 +219,52 @@ export function TailorResumePage() {
         </div>
       )}
 
-      {hasSuggestions && !suggesting && (
+      {hasResult && !suggesting && (
         <>
           <div className="card">
             <div className="row">
               <h3>Suggestions</h3>
-              <span className="muted">
-                {c.accepted} accepted · {c.rejected} rejected · {c.pending} to review
-              </span>
+              {hasSuggestions && (
+                <span className="muted">
+                  {c.accepted} accepted · {c.rejected} rejected · {c.pending} to review
+                </span>
+              )}
               <span className="spacer" />
-              <div className="row" style={{ gap: 8 }}>
-                {bulk.length > 0 && (
-                  <button className="btn btn-ghost" onClick={() => void decide(bulk.map((x) => ({ id: x, decision: 'accepted' })))} disabled={busy}>
-                    Accept all from your resume ({bulk.length})
-                  </button>
-                )}
-                <FormatSelect value={format} onChange={setFormat} disabled={c.accepted === 0} />
-                <button className="btn btn-primary" onClick={() => void download()} disabled={busy || c.accepted === 0}>
-                  {busy && <Spinner small />} Download resume
+              {bulk.length > 0 && (
+                <button className="btn btn-ghost" onClick={() => void decide(bulk.map((x) => ({ id: x, decision: 'accepted' })))} disabled={busy}>
+                  Accept all ({bulk.length})
                 </button>
-              </div>
+              )}
             </div>
             {draft.suggestedAt && <p className="muted" style={{ margin: 0 }}>Suggested {formatDateTime(draft.suggestedAt)}</p>}
-            {c.accepted === 0 && <p className="muted" style={{ margin: 0 }}>Accept at least one suggestion to download your tailored resume.</p>}
-            {c.accepted > 0 && c.pending > 0 && (
-              <p className="muted" style={{ margin: 0 }}>
-                {c.pending} suggestion{c.pending === 1 ? '' : 's'} you haven't reviewed won't be included.
-              </p>
-            )}
+            {!hasSuggestions && <p className="muted" style={{ margin: 0 }}>Your resume already words what it shows well for this job: nothing worth rewording.</p>}
             {draft.profileChanged && (
               <p role="status" className="notice">
                 Your profile changed after these suggestions were made. Fixes to dates, locations and contact details are included; get new
                 suggestions if you changed your experience or skills.
               </p>
             )}
-            <ResumeFormat workday={workday} onChange={setWorkdayChoice} checks={draft.checks} suggested={workdaySuggested} />
           </div>
 
-          <ScoreCard draft={draft} accepted={c.accepted} busy={busy} onScore={() => void scoreResume()} />
-
-          {draft.suggestions.map((s) => (
+          {own.map((s) => (
             <SuggestionCard key={s.id} s={s} roles={draft.roles} busy={busy} onDecide={(u) => void decide([u])} />
           ))}
 
+          <GapsCard draft={draft} busy={busy} onAnswer={answerGap} onDecide={(id, decision) => void decide([{ id, decision }])} />
+
+          <ScoreCard draft={draft} progress={progress} busy={busy} onGenerate={() => void generate()}>
+            <ResumeFormat workday={workday} onChange={setWorkdayChoice} checks={draft.checks} suggested={workdaySuggested} />
+            <div className="row" style={{ gap: 8 }}>
+              <FormatSelect value={format} onChange={setFormat} />
+              <button className="btn btn-primary" onClick={() => void download()} disabled={busy}>
+                {busy && <Spinner small />} Download resume
+              </button>
+            </div>
+          </ScoreCard>
+
           <div className="card">
             <div className="row">
-              <span className="muted">Want a fresh set? New suggestions replace these and your choices.</span>
+              <span className="muted">Want a fresh set? New suggestions and gaps replace these and your answers.</span>
               <span className="spacer" />
               {confirmRedo || !decided ? (
                 <span className="row" style={{ gap: 8 }}>
@@ -255,7 +287,7 @@ export function TailorResumePage() {
         </>
       )}
 
-      {draft.status === 'ready' && !hasSuggestions && (
+      {draft.status === 'ready' && !hasResult && (
         <div className="card">
           <p className="muted">Your resume already covers this job well: there's nothing worth changing.</p>
         </div>

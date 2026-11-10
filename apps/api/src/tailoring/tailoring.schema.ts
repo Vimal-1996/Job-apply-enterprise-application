@@ -46,16 +46,111 @@ export interface Suggestion {
   before: string | null;
   after: string;
   reason: string;
-  source: 'resume' | 'needs_confirmation';
+  /**
+   * resume: backed by the profile. experience: written from what the user told
+   * us about a gap. needs_confirmation: older drafts only (now handled as gaps).
+   */
+  source: 'resume' | 'needs_confirmation' | 'experience';
   question: string | null;
   decision: Decision;
   /** The user's own wording, if they edited the suggestion before accepting. */
   editedText: string | null;
+  /** For source 'experience': the gap it fills. */
+  gapId?: string | null;
+}
+
+export type GapAnswer = 'pending' | 'yes' | 'no';
+
+/** Something the job wants that the resume doesn't show, and the user's answer. */
+export interface Gap {
+  id: string;
+  /** As the job's match put it, e.g. "Kubernetes: not shown in your profile". */
+  text: string;
+  answer: GapAnswer;
+  /** For "yes": the user's own description of their experience. */
+  experience: string | null;
+  /** For "yes": the role it belongs to (in the profile the suggestions were made against), or null for none in particular. */
+  workIndex: number | null;
+}
+
+/** What Claude writes from the user's description of their experience with a gap. */
+export const GapWritingSchema = z.object({
+  bullets: z
+    .array(z.string())
+    .describe('0–2 resume bullets for the chosen role, built only from what the candidate wrote; empty if no role was chosen'),
+  skills: z.array(z.string()).describe('0–3 skills the candidate described and the job asks for, named as the posting names them'),
+  problem: z
+    .string()
+    .nullable()
+    .describe("if what the candidate wrote doesn't describe experience with this requirement, one sentence telling them what to add; otherwise null"),
+});
+export type GapWriting = z.infer<typeof GapWritingSchema>;
+
+/** The job's gaps, ready to be answered: cleaned, without repeats, capped. */
+export function gapsFrom(texts: string[], newId: () => string): Gap[] {
+  const seen = new Set<string>();
+  const out: Gap[] = [];
+  for (const t of texts) {
+    const text = clean(t);
+    if (!text || seen.has(text.toLowerCase())) continue;
+    seen.add(text.toLowerCase());
+    out.push({ id: newId(), text, answer: 'pending', experience: null, workIndex: null });
+    if (out.length >= TAILORING_LIMITS.gaps) break;
+  }
+  return out;
+}
+
+/**
+ * Turns what Claude wrote for a gap into accepted changes (the user described
+ * the experience themselves; they can still edit or remove each). Skills the
+ * resume already lists and empty lines are dropped; bullets need a role.
+ */
+export function gapSuggestions(profile: CandidateProfile, gap: Gap, workIndex: number | null, w: GapWriting, newId: () => string): Suggestion[] {
+  const out: Suggestion[] = [];
+  const reason = `From your experience with: ${gap.text}`;
+  const base = { bulletIndex: null, before: null, reason, source: 'experience' as const, question: null, decision: 'accepted' as const, editedText: null, gapId: gap.id };
+  if (workIndex !== null && profile.workHistory[workIndex]) {
+    for (const b of w.bullets.map(clean).filter(Boolean).slice(0, 2)) out.push({ ...base, id: newId(), kind: 'add_bullet', workIndex, after: b });
+  }
+  const skills = new Set(profile.skills.map((s) => s.toLowerCase()));
+  for (const s of w.skills.map(clean).filter(Boolean)) {
+    if (skills.has(s.toLowerCase()) || out.filter((x) => x.kind === 'add_skill').length >= 3) continue;
+    skills.add(s.toLowerCase());
+    out.push({ ...base, id: newId(), kind: 'add_skill', workIndex: null, after: s });
+  }
+  return out;
+}
+
+export type GapAnswerRequest = { answer: 'pending' | 'no' } | { answer: 'yes'; experience: string; workIndex: number | null };
+
+/** Validates the body of PUT .../resume-draft/gaps/:gapId. */
+export function parseGapAnswer(body: unknown): GapAnswerRequest | { error: string } {
+  const b = body as Record<string, unknown> | null;
+  if (!b || typeof b !== 'object') return { error: 'Send your answer' };
+  if (b.answer === 'no' || b.answer === 'pending') return { answer: b.answer };
+  if (b.answer !== 'yes') return { error: 'answer must be one of: yes, no, pending' };
+  if (typeof b.experience !== 'string' || b.experience.trim().length < 15) {
+    return { error: 'Describe your experience in a sentence or two: where, and what you did.' };
+  }
+  if (b.experience.length > TAILORING_LIMITS.experience) return { error: `Keep it under ${TAILORING_LIMITS.experience} characters.` };
+  const w = b.workIndex ?? null;
+  if (w !== null && (typeof w !== 'number' || !Number.isInteger(w) || w < 0)) return { error: 'workIndex must be a role number or null' };
+  return { answer: 'yes', experience: b.experience.trim(), workIndex: w as number | null };
 }
 
 export const TAILORING_LIMITS = {
   /** Tailored-resume scorings per user per day (each matches two resumes). */
-  scoresPerDay: 20, suggestions: 15, text: 1000, perDay: 20 };
+  scoresPerDay: 20,
+  suggestions: 15,
+  text: 1000,
+  perDay: 20,
+  /** Gaps shown per job. */
+  gaps: 8,
+  /** Longest description of experience for a gap. */
+  experience: 1500,
+  /** Gaps written up by Claude per user per day. */
+  gapsPerDay: 60,
+};
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, TAILORING_LIMITS.text);
 
@@ -69,6 +164,8 @@ export function tidySuggestions(profile: CandidateProfile, raw: RawSuggestion[],
   const skills = new Set(profile.skills.map((s) => s.toLowerCase()));
   const seen = new Set<string>();
   for (const r of raw) {
+    // What the profile doesn't show is asked about as a gap instead.
+    if (r.source === 'needs_confirmation') continue;
     const after = clean(r.after);
     if (!after) continue;
     let before: string | null = null;
@@ -95,7 +192,6 @@ export function tidySuggestions(profile: CandidateProfile, raw: RawSuggestion[],
     // One change per summary, headline or bullet; repeated additions are fine if the text differs.
     if (r.kind !== 'add_skill' && r.kind !== 'add_bullet' && seen.has(key)) continue;
     seen.add(key);
-    const needsConfirmation = r.source === 'needs_confirmation';
     out.push({
       id: newId(),
       kind: r.kind,
@@ -104,8 +200,8 @@ export function tidySuggestions(profile: CandidateProfile, raw: RawSuggestion[],
       before,
       after,
       reason: clean(r.reason),
-      source: r.source,
-      question: needsConfirmation ? clean(r.question ?? '') || null : null,
+      source: 'resume',
+      question: null,
       decision: 'pending',
       editedText: null,
     });

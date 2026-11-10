@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import type { Suggestion } from '../../api/types';
-import { acceptAllIds, counts, documentUrl, finalText, isWorkdayJob, scoreDelta, shouldAutoStart, suggestionLabel } from './tailorView';
+import type { Gap, Suggestion } from '../../api/types';
+import {
+  acceptAllIds,
+  counts,
+  documentUrl,
+  finalText,
+  isWorkdayJob,
+  leftToReview,
+  ownSuggestions,
+  scoreDelta,
+  shouldAutoStart,
+  suggestionLabel,
+  tailorProgress,
+} from './tailorView';
 
 const s = (over: Partial<Suggestion>): Suggestion => ({
   id: 'a',
@@ -75,5 +87,19 @@ describe('scoreDelta', () => {
     expect(scoreDelta(70, 82)).toEqual({ text: '+12', tone: 'success' });
     expect(scoreDelta(70, 70)).toEqual({ text: '±0', tone: 'neutral' });
     expect(scoreDelta(70, 65)).toEqual({ text: '−5', tone: 'danger' });
+  });
+});
+
+describe('tailorProgress', () => {
+  const gap = (over: Partial<Gap>): Gap => ({ id: 'g', text: 'Kubernetes', answer: 'pending', experience: null, workIndex: null, ...over });
+
+  it("counts what's left to review, and is done when every suggestion and gap is answered", () => {
+    const suggestions = [s({ id: '1' }), s({ id: '2', decision: 'accepted' }), s({ id: '3', decision: 'accepted', source: 'experience', gapId: 'g1' })];
+    const p = tailorProgress({ suggestions, gaps: [gap({ id: 'g1', answer: 'yes' }), gap({ id: 'g2' })] });
+    expect(p).toEqual({ pendingSuggestions: 1, pendingGaps: 1, accepted: 2, done: false });
+    expect(leftToReview(p)).toBe('1 suggestion and 1 gap');
+    expect(leftToReview({ pendingSuggestions: 3, pendingGaps: 0 })).toBe('3 suggestions');
+    expect(ownSuggestions(suggestions).map((x) => x.id)).toEqual(['1', '2']);
+    expect(tailorProgress({ suggestions: [s({ decision: 'rejected' })], gaps: [gap({ answer: 'no' })] }).done).toBe(true);
   });
 });

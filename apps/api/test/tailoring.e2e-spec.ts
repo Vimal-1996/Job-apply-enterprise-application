@@ -55,7 +55,7 @@ const ANALYSIS: JobAnalysis = {
     visaSponsorship: 'not_stated',
     applyUrl: null,
   },
-  match: { score: 70, verdict: 'good', summary: 'Good.', strengths: [], gaps: [], dealbreakers: [] },
+  match: { score: 70, verdict: 'good', summary: 'Good.', strengths: [], gaps: ['Kubernetes not shown in your profile'], dealbreakers: [] },
 };
 
 const DESCRIPTION = 'Acme is hiring a Backend Engineer to build TypeScript and PostgreSQL services. '.repeat(4);
@@ -74,6 +74,7 @@ describe('resume tailoring (e2e)', () => {
       { kind: 'add_skill', workIndex: null, bulletIndex: null, after: 'PostgreSQL', reason: 'The posting requires it.', source: 'resume', question: null },
       { kind: 'rewrite_bullet', workIndex: 0, bulletIndex: 0, after: 'Built TypeScript APIs', reason: 'Names the stack.', source: 'resume', question: null },
     ],
+    writeGap: async () => ({ bullets: ['Ran Kubernetes clusters'], skills: ['Kubernetes'], problem: null }),
   };
 
   beforeAll(async () => {
@@ -208,5 +209,35 @@ describe('resume tailoring (e2e)', () => {
     await as('jane-token').post(base).expect(202);
     await app.get(TailoringService).whenIdle();
     expect((await as('jane-token').get(base).expect(200)).body.score.status).toBe('none');
+  });
+
+  it('asks about gaps: "yes" adds the experience to the resume, for the job owner only', async () => {
+    const job = await as('jane-token').post('/jobs', { description: DESCRIPTION.replace('Acme', 'Acme Three') }).expect(202);
+    await app.get(JobsService).whenIdle();
+    const base = `/jobs/${job.body.id}/resume-draft`;
+    await as('jane-token').put(`${base}/gaps/x`, { answer: 'no' }).expect(409); // no suggestions yet
+    await as('jane-token').post(base).expect(202);
+    await app.get(TailoringService).whenIdle();
+    const draft = (await as('jane-token').get(base).expect(200)).body;
+    expect(draft.gaps).toEqual([expect.objectContaining({ text: 'Kubernetes not shown in your profile', answer: 'pending' })]);
+    const gap = `${base}/gaps/${draft.gaps[0].id}`;
+
+    await as('bob-token').put(gap, { answer: 'no' }).expect(404);
+    await as('jane-token').put(gap, { answer: 'yes', experience: 'short', workIndex: 0 }).expect(400);
+    await as('jane-token').put(`${base}/gaps/not%20an%20id!`, { answer: 'no' }).expect(400);
+    const yes = (await as('jane-token').put(gap, { answer: 'yes', experience: 'Ran our Kubernetes clusters at Globex.', workIndex: 0 }).expect(200)).body;
+    expect(yes.gaps[0]).toMatchObject({ answer: 'yes', workIndex: 0 });
+    expect(yes.suggestions.filter((s: { gapId?: string }) => s.gapId).map((s: { after: string; decision: string }) => [s.after, s.decision])).toEqual([
+      ['Ran Kubernetes clusters', 'accepted'],
+      ['Kubernetes', 'accepted'],
+    ]);
+    // A gap's changes count as accepted, so the resume can be generated (scored).
+    await as('jane-token').post(`${base}/score`).expect(202);
+    await app.get(TailoringService).whenIdle();
+
+    const no = (await as('jane-token').put(gap, { answer: 'no' }).expect(200)).body;
+    expect(no.gaps[0].answer).toBe('no');
+    expect(no.suggestions.some((s: { gapId?: string }) => s.gapId)).toBe(false);
+    expect(no.score.outdated).toBe(true);
   });
 });

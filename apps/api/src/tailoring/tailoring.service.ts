@@ -19,7 +19,7 @@ import { RESUME_TAILOR, ResumeTailor, TailorError, TailorInput } from './resume-
 import { refreshFacts, resumeChecks, ResumeCheck, resumeFileName, ResumeFormat, ResumeLayout } from '../resume-doc/resume-docx';
 import { buildResumeFile } from '../resume-doc/resume-file';
 import { CandidateProfile } from '../profile/profile.schema';
-import { applySuggestions, DecisionUpdate, Suggestion, TAILORING_LIMITS, tidySuggestions } from './tailoring.schema';
+import { applySuggestions, DecisionUpdate, Gap, GapAnswerRequest, gapsFrom, gapSuggestions, Suggestion, TAILORING_LIMITS, tidySuggestions } from './tailoring.schema';
 
 export const DRAFT_STORE = Symbol('DRAFT_STORE');
 
@@ -38,6 +38,8 @@ export interface DraftView {
   /** What the resume is missing that Workday and other ATS ask for (fix on the Profile page). */
   checks: ResumeCheck[];
   aiEnabled: boolean;
+  /** What the job wants that the resume doesn't show, each to answer: do you have this experience? */
+  gaps: Gap[];
   /** Required skills the original and the tailored resume mention (null until there are suggestions, or if the job lists none). */
   keywords: KeywordCoverage | null;
   /** The original and tailored resume matched side by side, on request. */
@@ -93,7 +95,7 @@ export class TailoringService {
     const run = (async () => {
       try {
         const raw = await tailor.suggest(input);
-        await this.store.finish(userId, jobId, runId, profile, tidySuggestions(profile, raw, randomUUID));
+        await this.store.finish(userId, jobId, runId, profile, tidySuggestions(profile, raw, randomUUID), gapsFrom(job.match?.gaps ?? [], randomUUID));
       } catch (e) {
         const message = e instanceof TailorError ? e.message : 'Something went wrong making suggestions. Please try again.';
         if (!(e instanceof TailorError)) this.logger.error(`Tailoring a resume failed: ${(e as Error).stack ?? e}`);
@@ -125,6 +127,58 @@ export class TailoringService {
     return this.get(userId, jobId);
   }
 
+  /**
+   * Records the user's answer to a gap. "Yes" with their description of the
+   * experience has Claude write it up as resume lines (a few seconds), added
+   * as accepted changes; "no" or "pending" removes any lines it had.
+   */
+  async answerGap(userId: string, jobId: string, gapId: string, req: GapAnswerRequest): Promise<DraftView> {
+    const job = await this.jobs.get(userId, jobId);
+    const draft = await this.store.get(userId, jobId);
+    if (!draft?.suggestions || !draft.suggestionsId || !draft.baseProfile) throw new ConflictException('There are no suggestions to review yet');
+    const gaps = this.gapsOf(draft, job.match?.gaps ?? []);
+    const gap = gaps.find((g) => g.id === gapId);
+    if (!gap) throw new BadRequestException('Unknown gap. Refresh the page and try again.');
+    const others = draft.suggestions.filter((s) => s.gapId !== gapId);
+    let added: Suggestion[] = [];
+    let updated: Gap = { ...gap, answer: req.answer, experience: null, workIndex: null };
+    if (req.answer === 'yes') {
+      const tailor = this.tailor;
+      if (!tailor || !job.details) throw new ServiceUnavailableException("Writing up experience with AI isn't set up on this server");
+      if (req.workIndex !== null && !draft.baseProfile.workHistory[req.workIndex]) throw new BadRequestException('Pick one of your roles');
+      if ((await this.store.runsLastDay(userId, 'gap')) >= TAILORING_LIMITS.gapsPerDay) {
+        throw new HttpException({ statusCode: 429, message: `You can add up to ${TAILORING_LIMITS.gapsPerDay} experiences a day. Please try again tomorrow.` }, 429);
+      }
+      await this.store.recordRun(userId, 'gap');
+      let writing;
+      try {
+        writing = await tailor.writeGap({ profile: draft.baseProfile, job: job.details, gap, experience: req.experience, workIndex: req.workIndex });
+      } catch (e) {
+        if (e instanceof TailorError) throw new HttpException({ statusCode: 502, message: e.message }, 502);
+        throw e;
+      }
+      // Skills accepted elsewhere on this draft count as listed already.
+      const tailored = applySuggestions(draft.baseProfile, others);
+      added = gapSuggestions(tailored, gap, req.workIndex, writing, randomUUID);
+      if (!added.length) {
+        throw new HttpException({ statusCode: 422, message: writing.problem ?? 'Add a little more detail: where you did this, and what you did.' }, 422);
+      }
+      updated = { ...gap, answer: 'yes', experience: req.experience, workIndex: req.workIndex };
+    }
+    const nextGaps = gaps.map((g) => (g.id === gapId ? updated : g));
+    if (!(await this.store.saveGaps(userId, jobId, draft.suggestionsId, nextGaps, [...others, ...added]))) {
+      throw new ConflictException('These suggestions were replaced. Refresh the page to see the new ones.');
+    }
+    return this.get(userId, jobId);
+  }
+
+  /** The draft's gaps; drafts made before gaps get them from the job's match (with stable ids). */
+  private gapsOf(row: DraftRow, matchGaps: string[]): Gap[] {
+    if (row.gaps) return row.gaps;
+    let n = 0;
+    return gapsFrom(matchGaps, () => `g${n++}`);
+  }
+
   /** The tailored resume as a Word or PDF file, in the chosen layout. */
   async document(userId: string, jobId: string, layout: ResumeLayout = 'standard', format: ResumeFormat = 'docx'): Promise<{ fileName: string; bytes: Buffer }> {
     const job = await this.jobs.get(userId, jobId);
@@ -154,7 +208,7 @@ export class TailoringService {
     await this.jobs.get(userId, jobId);
     const draft = await this.store.get(userId, jobId);
     if (!draft?.baseProfile || !draft.suggestions) throw new ConflictException('Get suggestions for this job first');
-    if (!draft.suggestions.some((s) => s.decision === 'accepted')) throw new ConflictException('Accept at least one suggestion, then score your tailored resume');
+    if (!draft.suggestions.some((s) => s.decision === 'accepted')) throw new ConflictException('Accept at least one change, then generate your tailored resume');
     if ((await this.store.runsLastDay(userId, 'score')) >= TAILORING_LIMITS.scoresPerDay) {
       throw new HttpException({ statusCode: 429, message: `You can score up to ${TAILORING_LIMITS.scoresPerDay} tailored resumes a day. Please try again tomorrow.` }, 429);
     }
@@ -191,11 +245,12 @@ export class TailoringService {
   private async view(userId: string, row: DraftRow | null): Promise<DraftView> {
     const aiEnabled = Boolean(this.tailor);
     const noScore = { status: 'none' as const, result: null, error: null, scoredAt: null, outdated: false };
-    if (!row) return { status: 'none', suggestions: [], roles: [], error: null, suggestedAt: null, profileChanged: false, checks: [], aiEnabled, keywords: null, score: noScore };
+    if (!row) return { status: 'none', suggestions: [], roles: [], error: null, suggestedAt: null, profileChanged: false, checks: [], aiEnabled, gaps: [], keywords: null, score: noScore };
     const stale = row.status === 'suggesting' && Date.now() - row.updatedAt.getTime() > TAILOR_TIMEOUT_MS;
     const scoreStuck = row.scoreStatus === 'scoring' && (!row.scoreStartedAt || Date.now() - row.scoreStartedAt.getTime() > TAILOR_TIMEOUT_MS);
     const tailored = row.baseProfile ? await this.finalProfile(userId, row.baseProfile, row.suggestions ?? []) : null;
-    const required = (await this.jobs.get(userId, row.jobId)).details?.requiredSkills ?? [];
+    const job = await this.jobs.get(userId, row.jobId);
+    const required = job.details?.requiredSkills ?? [];
     let profileChanged = false;
     if (row.suggestedAt) {
       const p = await this.profiles.get(userId);
@@ -210,6 +265,7 @@ export class TailoringService {
       profileChanged,
       checks: tailored ? resumeChecks(tailored) : [],
       aiEnabled,
+      gaps: row.suggestions ? this.gapsOf(row, job.match?.gaps ?? []) : [],
       keywords: tailored && row.baseProfile && required.length ? keywordCoverage(required, row.baseProfile, tailored) : null,
       score: row.scoreStatus
         ? {

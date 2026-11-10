@@ -170,10 +170,22 @@ export interface Suggestion {
   before: string | null;
   after: string;
   reason: string;
-  source: 'resume' | 'needs_confirmation';
+  /** experience: written from what the user said about a gap. needs_confirmation: older drafts only. */
+  source: 'resume' | 'needs_confirmation' | 'experience';
   question: string | null;
   decision: Decision;
   editedText: string | null;
+  /** For source 'experience': the gap it fills. */
+  gapId?: string | null;
+}
+
+/** Something the job wants that the resume doesn't show, and the user's answer. */
+export interface Gap {
+  id: string;
+  text: string;
+  answer: 'pending' | 'yes' | 'no';
+  experience: string | null;
+  workIndex: number | null;
 }
 
 export interface ResumeCheck {
@@ -190,6 +202,8 @@ export interface DraftView {
   profileChanged: boolean;
   checks: ResumeCheck[];
   aiEnabled: boolean;
+  /** The job's gaps, each to answer. */
+  gaps: Gap[];
   /** Required skills the original and tailored resume mention. */
   keywords: { total: number; original: number; tailored: number; added: string[]; missing: string[] } | null;
   /** The original and tailored resume matched side by side, on request. */
