@@ -259,8 +259,10 @@ export class InboxService {
         const read = new Map<string, Date>();
         const progress = this.progress.get(userId);
         if (progress) progress.total += todo.length;
+        // Oldest first, so threads usually read in order (it doesn't change the result).
+        const ordered = [...todo].reverse();
         const batches: string[][] = [];
-        for (let i = 0; i < todo.length; i += INBOX_LIMITS.batch) batches.push(todo.slice(i, i + INBOX_LIMITS.batch));
+        for (let i = 0; i < ordered.length; i += INBOX_LIMITS.batch) batches.push(ordered.slice(i, i + INBOX_LIMITS.batch));
         await inParallel(batches, INBOX_LIMITS.parallel, async (ids) => {
           const batch = await Promise.all(ids.map(async (id) => parseMessage(await gmail.getMessage(token, id))));
           const verdicts = await classifier.classify(
