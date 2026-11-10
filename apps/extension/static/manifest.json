@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Job Apply",
+  "version": "0.1.0",
+  "description": "Fills job applications on Greenhouse and Lever from your Job Apply profile. You review and submit.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwgby7S1LqUSOlX8rx8mySvxh5siTDInL/35WKBRD9jX2qfjAqp1RiGE3KNWzdE6fSjs5CI1m9WbDJ/5P9f3e32qRAKZis07hJR5Wrj2yd+JyabYj3L5VgJuDPCwTfJkaLtZ/rZuZnvY0ZPkj7ZNkZKYffJB6Ha8mKVMF/+XF9uZ82GwvyFTGoQSDBOYdCiXMMKeO0n7fvpV/ztP7YTDWyhetCuNYWZfnxKaOPLgV59WHB+w4dce6y/hdw2WpdH5qeXM3QQ56zK1dNNn65PnKCPiQ1jqkmJpnxftr0bxAPYuLiu/6rjTmv8MRU9xq8qKveumBiMynruP/bPxTCdJUgQIDAQAB",
+  "minimum_chrome_version": "116",
+  "permissions": ["identity", "sidePanel", "storage", "tabs"],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*",
+    "https://*.cloudfront.net/*",
+    "https://*.amazoncognito.com/*",
+    "https://*.amazonaws.com/*"
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "Job Apply" },
+  "side_panel": { "default_path": "panel.html" },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["https://*.greenhouse.io/*", "https://jobs.lever.co/*", "https://jobs.eu.lever.co/*"],
+      "js": ["content.js"],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ]
+}

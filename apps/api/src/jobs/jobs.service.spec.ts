@@ -249,7 +249,7 @@ describe('JobsService', () => {
     expect(view).toMatchObject({ applicationStatus: 'interviewing', notes: 'Sent the tailored resume' });
     expect(view.statusChangedAt).not.toBeNull();
     expect(view.timeline.map((t) => t.status)).toEqual(['saved', 'applied', 'interviewing']);
-    expect((await service.list('u1'))[0]).toMatchObject({ applicationStatus: 'interviewing' });
+    expect((await service.list('u1'))[0]).toMatchObject({ applicationStatus: 'interviewing', applyUrl: 'https://acme.example/careers/1' });
 
     expect((await service.updateApplication('u1', id, { notes: null })).notes).toBeNull();
     await expect(service.updateApplication('u2', id, { status: 'offer' })).rejects.toThrow('Job not found');

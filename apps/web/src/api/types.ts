@@ -106,6 +106,7 @@ export interface JobSummary {
   id: string;
   source: JobSource;
   url: string | null;
+  applyUrl: string | null;
   title: string | null;
   company: string | null;
   location: string | null;

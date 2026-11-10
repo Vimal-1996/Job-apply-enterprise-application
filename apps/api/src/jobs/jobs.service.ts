@@ -87,6 +87,8 @@ export interface JobSummary {
   id: string;
   source: JobRowSource;
   url: string | null;
+  /** The company's own application link, if the posting has one (lets the extension recognise the job). */
+  applyUrl: string | null;
   title: string | null;
   company: string | null;
   location: string | null;
@@ -249,6 +251,7 @@ function summary(row: JobRow): JobSummary {
     id: row.id,
     source: row.source,
     url: row.url,
+    applyUrl: row.details?.applyUrl ?? null,
     title: row.details?.title ?? null,
     company: row.details?.company ?? null,
     location: row.details?.location ?? null,

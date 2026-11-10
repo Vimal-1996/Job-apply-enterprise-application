@@ -1,0 +1,45 @@
+:root {
+  --text: #1a1d29; --muted: #5f6577; --border: #e2e5ee; --surface: #ffffff; --surface-2: #f5f6fa; --bg: #f5f6fa;
+  --primary: #4f46e5; --primary-text: #ffffff; --success: #15803d; --warning: #b45309; --danger: #b91c1c;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #e8eaf2; --muted: #a2a8ba; --border: #2d3142; --surface: #1b1e2b; --surface-2: #232736; --bg: #13151f;
+    --primary: #8b85ff; --primary-text: #0f1020; --success: #4ade80; --warning: #fbbf24; --danger: #f87171;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 14px; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+h1 { font-size: 20px; margin: 0; }
+a { color: var(--primary); }
+code { font-size: 12px; overflow-wrap: anywhere; }
+.stack { display: grid; gap: 12px; }
+.stack.tight { gap: 6px; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.spacer { flex: 1; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.title { font-weight: 650; font-size: 15px; overflow-wrap: anywhere; }
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+p { margin: 0; }
+ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+fieldset { border: 0; margin: 0; padding: 0; }
+legend { padding: 0; margin-bottom: 4px; color: var(--muted); }
+.ok { color: var(--success); }
+.error { color: var(--danger); }
+.btn {
+  font: inherit; font-weight: 600; padding: 8px 12px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+.btn:disabled { opacity: .55; cursor: default; }
+.btn-primary { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+.link { font: inherit; border: 0; background: none; color: var(--primary); cursor: pointer; padding: 0; font-size: 12.5px; }
+.input { width: 100%; font: inherit; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.field { display: grid; gap: 4px; font-weight: 500; }
+.check { display: flex; gap: 6px; align-items: center; }
+.badge { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--muted); }
+.badge.strong { color: var(--success); }
+.badge.good { color: var(--primary); }
+.badge.possible { color: var(--warning); }
+.badge.weak { color: var(--danger); }
