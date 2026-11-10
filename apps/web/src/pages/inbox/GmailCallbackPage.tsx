@@ -10,7 +10,8 @@ import { Spinner } from '../../components/ui';
  * attached to the account that started connecting.
  */
 export function GmailCallbackPage() {
-  const token = useAuth().user?.access_token;
+  const auth = useAuth();
+  const token = auth.user?.access_token;
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +30,20 @@ export function GmailCallbackPage() {
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not connect Gmail.'));
   }, [code, state, denied, token, navigate]);
 
+  // Coming back from Google reloads the app; if the sign-in couldn't be renewed then,
+  // sign in again and come straight back here (with Google's code) to finish.
+  if (code && state && !error && !auth.isLoading && (auth.error || !token))
+    return (
+      <div className="card">
+        <p style={{ margin: 0 }}>Your sign-in expired while you were on Google's page. Sign in again to finish connecting Gmail.</p>
+        <div>
+          <button className="btn btn-primary" onClick={() => void auth.signinRedirect({ state: `${window.location.pathname}${window.location.search}` })}>
+            Sign in and finish connecting
+          </button>
+        </div>
+        <Link to="/inbox">Back to Inbox</Link>
+      </div>
+    );
   if (denied || (!code && !error))
     return (
       <div className="card">
