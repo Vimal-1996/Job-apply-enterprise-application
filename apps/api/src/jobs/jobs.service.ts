@@ -14,7 +14,7 @@ import { ProfileService } from '../profile/profile.service';
 import { CandidateProfile, JobPreferences } from '../profile/profile.schema';
 import { JobLink, JobLinkError, parseJobLink } from './job-link';
 import { JOB_MATCHER, JobMatcher, MatchError } from './job-matcher';
-import { APPLICATION_STATUSES, ApplicationStatus, JobRow, JobRowSource, JobStore, MatchStatus } from './job-store';
+import { APPLICATION_STATUSES, ApplicationStatus, EventSource, JobRow, JobRowSource, JobStore, MatchStatus } from './job-store';
 import { JobDetails, JobMatch } from './job.schema';
 
 export const JOB_STORE = Symbol('JOB_STORE');
@@ -110,8 +110,8 @@ export interface JobView extends JobSummary {
   /** The profile was read or edited after this job was matched, so the match may be out of date. */
   profileChanged: boolean;
   notes: string | null;
-  /** Status changes, oldest first, starting with when the job was saved. */
-  timeline: { status: ApplicationStatus; at: string }[];
+  /** Status changes, oldest first, starting with when the job was saved; `source: 'email'` when accepted from an email. */
+  timeline: { status: ApplicationStatus; at: string; source: EventSource }[];
 }
 
 @Injectable()
@@ -175,8 +175,8 @@ export class JobsService {
   }
 
   /** Records where the user is with this job: its status and/or private notes. */
-  async updateApplication(userId: string, id: string, update: ApplicationUpdate): Promise<JobView> {
-    if (!(await this.store.updateApplication(userId, id, randomUUID(), update))) throw new NotFoundException('Job not found');
+  async updateApplication(userId: string, id: string, update: ApplicationUpdate, source: EventSource = null): Promise<JobView> {
+    if (!(await this.store.updateApplication(userId, id, randomUUID(), update, source))) throw new NotFoundException('Job not found');
     return this.get(userId, id);
   }
 
@@ -233,8 +233,8 @@ export class JobsService {
       profileChanged,
       notes: row.notes,
       timeline: [
-        { status: 'saved' as const, at: row.createdAt.toISOString() },
-        ...(await this.store.events(userId, row.id)).map((e) => ({ status: e.status, at: e.at.toISOString() })),
+        { status: 'saved' as const, at: row.createdAt.toISOString(), source: null },
+        ...(await this.store.events(userId, row.id)).map((e) => ({ status: e.status, at: e.at.toISOString(), source: e.source })),
       ],
     };
   }

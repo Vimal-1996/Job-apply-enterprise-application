@@ -17,13 +17,25 @@ describe('loadConfig', () => {
       signup: { perIpPerHour: 5, perDay: 30 },
       database: { kind: 'memory' },
       userFiles: { bucket: 'b', region: 'p' },
-      ai: { enabled: false, model: 'claude-opus-5-5' },
+      ai: { enabled: false, model: 'claude-opus-5-5', emailModel: 'claude-haiku-5-5' },
+      gmail: { enabled: false, clientId: '', clientSecret: '', redirectUri: 'http://localhost:5173/gmail/callback', tokenKey: null },
     });
+  });
+
+  it('turns Gmail on only with a Google client, and checks the token key', () => {
+    const base = { COGNITO_USER_POOL_ID: 'p', COGNITO_CLIENT_ID: 'c', DATABASE_URL: 'memory', USER_FILES_BUCKET: 'b' };
+    const google = { ...base, GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret', CORS_ORIGINS: 'https://app.example.com/' };
+    expect(loadConfig({ ...base, GOOGLE_CLIENT_ID: 'id' }).gmail.enabled).toBe(false);
+    expect(loadConfig(google).gmail).toMatchObject({ enabled: true, redirectUri: 'https://app.example.com/gmail/callback', tokenKey: null });
+    const key = Buffer.alloc(32, 7).toString('base64');
+    expect(loadConfig({ ...google, GMAIL_TOKEN_KEY: key }).gmail.tokenKey).toEqual(Buffer.alloc(32, 7));
+    expect(() => loadConfig({ ...google, GMAIL_TOKEN_KEY: 'c2hvcnQ=' })).toThrow('32 bytes');
+    expect(() => loadConfig({ ...google, NODE_ENV: 'production', DATABASE_URL: 'postgres://u:p@h/d' })).toThrow('GMAIL_TOKEN_KEY');
   });
 
   it('turns AI on only when an API key is set, and reads the model', () => {
     const base = { COGNITO_USER_POOL_ID: 'p', COGNITO_CLIENT_ID: 'c', DATABASE_URL: 'memory', USER_FILES_BUCKET: 'b' };
-    expect(loadConfig({ ...base, ANTHROPIC_API_KEY: 'k' }).ai).toEqual({ enabled: true, model: 'claude-opus-5-5' });
+    expect(loadConfig({ ...base, ANTHROPIC_API_KEY: 'k' }).ai).toEqual({ enabled: true, model: 'claude-opus-5-5', emailModel: 'claude-haiku-5-5' });
     expect(loadConfig({ ...base, ANTHROPIC_API_KEY: 'k', AI_MODEL: 'claude-sonnet-5-5' }).ai.model).toBe('claude-sonnet-5-5');
   });
 

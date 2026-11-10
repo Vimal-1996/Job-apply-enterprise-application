@@ -7,9 +7,13 @@ export type MatchStatus = 'matching' | 'ready' | 'failed';
 export const APPLICATION_STATUSES = ['saved', 'applied', 'interviewing', 'offer', 'rejected', 'withdrawn'] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
+/** Where a stage change came from: null when the user made it, 'email' when they accepted an email's suggestion. */
+export type EventSource = 'email' | null;
+
 export interface ApplicationEvent {
   status: ApplicationStatus;
   at: Date;
+  source: EventSource;
 }
 
 export interface JobRow {
@@ -151,6 +155,7 @@ export class JobStore {
     id: string,
     eventId: string,
     patch: { status?: ApplicationStatus; notes?: string | null },
+    source: EventSource = null,
   ): Promise<boolean> {
     const client = await this.pool.connect();
     try {
@@ -167,7 +172,13 @@ export class JobStore {
           [userId, id, patch.status],
         );
         if (rowCount === 1) {
-          await client.query('INSERT INTO application_event (id, job_id, user_id, status) VALUES ($1, $2, $3, $4)', [eventId, id, userId, patch.status]);
+          await client.query('INSERT INTO application_event (id, job_id, user_id, status, source) VALUES ($1, $2, $3, $4, $5)', [
+            eventId,
+            id,
+            userId,
+            patch.status,
+            source,
+          ]);
         }
       }
       if (patch.notes !== undefined) {
@@ -186,10 +197,10 @@ export class JobStore {
   /** The job's status changes, oldest first. */
   async events(userId: string, id: string): Promise<ApplicationEvent[]> {
     const { rows } = await this.pool.query(
-      'SELECT status, created_at FROM application_event WHERE user_id = $1 AND job_id = $2 ORDER BY created_at, id',
+      'SELECT status, created_at, source FROM application_event WHERE user_id = $1 AND job_id = $2 ORDER BY created_at, id',
       [userId, id],
     );
-    return rows.map((r) => ({ status: r.status, at: new Date(r.created_at) }));
+    return rows.map((r) => ({ status: r.status, at: new Date(r.created_at), source: r.source ?? null }));
   }
 
   /** False if there was no such job. */

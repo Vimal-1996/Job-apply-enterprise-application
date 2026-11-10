@@ -436,3 +436,12 @@ textarea.input { resize: vertical; line-height: 1.45; }
 }
 .board-title { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
 .board-empty { font-size: 13px; text-align: center; padding: 12px 0; border: 1px dashed var(--border); border-radius: 10px; }
+
+/* Inbox: job emails, with the ones about saved jobs highlighted. */
+.inbox-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.inbox-card { gap: 8px; }
+.inbox-card.linked { border-left: 4px solid var(--primary); background: linear-gradient(90deg, var(--primary-soft), var(--surface) 40%); }
+.inbox-subject { overflow-wrap: anywhere; }
+.inbox-suggestion { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin: 0; }
+.inbox-body { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); padding: 10px 12px; max-height: 360px; overflow: auto; }
+.inbox-body pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 14px; }

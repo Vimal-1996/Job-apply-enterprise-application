@@ -155,7 +155,8 @@ export interface JobView extends JobSummary {
   /** The profile changed after this job was matched, so the match may be out of date. */
   profileChanged: boolean;
   notes: string | null;
-  timeline: { status: ApplicationStatus; at: string }[];
+  /** `source: 'email'` when the change was accepted from an email's suggestion. */
+  timeline: { status: ApplicationStatus; at: string; source: 'email' | null }[];
 }
 
 export type SuggestionKind = 'summary' | 'headline' | 'add_skill' | 'rewrite_bullet' | 'add_bullet';
@@ -189,4 +190,48 @@ export interface DraftView {
   profileChanged: boolean;
   checks: ResumeCheck[];
   aiEnabled: boolean;
+}
+
+export type EmailCategory =
+  | 'application_received'
+  | 'interview'
+  | 'assessment'
+  | 'rejection'
+  | 'offer'
+  | 'recruiter_outreach'
+  | 'job_alert'
+  | 'other_job'
+  | 'not_job';
+
+export interface InboxEmail {
+  id: string;
+  fromName: string | null;
+  fromAddress: string;
+  subject: string;
+  receivedAt: string;
+  category: EmailCategory;
+  summary: string | null;
+  action: string | null;
+  actionDue: string | null;
+  company: string | null;
+  threadUrl: string;
+  job: { id: string; title: string | null; company: string | null; applicationStatus: ApplicationStatus } | null;
+  linkSource: 'ai' | 'thread' | 'user' | null;
+  suggestion: { status: ApplicationStatus } | null;
+}
+
+export interface GmailConnection {
+  email: string;
+  status: 'connected' | 'expired';
+  syncStatus: 'idle' | 'syncing' | 'failed';
+  syncError: string | null;
+  lastSyncedAt: string | null;
+  connectedAt: string;
+}
+
+export interface InboxView {
+  enabled: boolean;
+  aiEnabled: boolean;
+  connection: GmailConnection | null;
+  emails: InboxEmail[];
 }

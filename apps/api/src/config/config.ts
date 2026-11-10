@@ -15,7 +15,13 @@ export interface AppConfig {
    * Claude, for reading resumes and (later) matching jobs. Off when no
    * ANTHROPIC_API_KEY is set: the app still runs, AI features say so.
    */
-  ai: { enabled: boolean; model: string };
+  ai: { enabled: boolean; model: string; emailModel: string };
+  /**
+   * Gmail, for the job-email inbox. Off unless a Google OAuth client is set.
+   * redirectUri is the web app's /gmail/callback page (it hands the code to the API).
+   * tokenKey encrypts refresh tokens (32 bytes); required in production.
+   */
+  gmail: { enabled: boolean; clientId: string; clientSecret: string; redirectUri: string; tokenKey: Buffer | null };
 }
 
 /**
@@ -84,6 +90,21 @@ function loadDatabase(env: NodeJS.ProcessEnv, get: (n: string) => string): Datab
   };
 }
 
+function loadGmail(env: NodeJS.ProcessEnv): AppConfig['gmail'] {
+  const clientId = env.GOOGLE_CLIENT_ID ?? '';
+  const clientSecret = env.GOOGLE_CLIENT_SECRET ?? '';
+  const enabled = Boolean(clientId && clientSecret);
+  const web = (env.CORS_ORIGINS ?? 'http://localhost:5173').split(',')[0].trim().replace(/\/+$/, '');
+  let tokenKey: Buffer | null = null;
+  if (env.GMAIL_TOKEN_KEY) {
+    tokenKey = Buffer.from(env.GMAIL_TOKEN_KEY, 'base64');
+    if (tokenKey.length !== 32) throw new Error('GMAIL_TOKEN_KEY must be 32 bytes, base64-encoded');
+  } else if (enabled && env.NODE_ENV === 'production') {
+    throw new Error('GMAIL_TOKEN_KEY is required when Gmail is enabled in production');
+  }
+  return { enabled, clientId, clientSecret, redirectUri: env.GOOGLE_REDIRECT_URI || `${web}/gmail/callback`, tokenKey };
+}
+
 /** Fails fast at startup if auth or the database is not configured. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const get = (n: string) => {
@@ -109,7 +130,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       bucket: get('USER_FILES_BUCKET'),
       region: env.AWS_REGION || get('COGNITO_USER_POOL_ID').split('_')[0],
     },
-    ai: { enabled: Boolean(env.ANTHROPIC_API_KEY), model: env.AI_MODEL || 'claude-opus-5-5' },
+    ai: {
+      enabled: Boolean(env.ANTHROPIC_API_KEY),
+      model: env.AI_MODEL || 'claude-opus-5-5',
+      // Sorting and summarizing emails is high-volume and simple: a smaller, cheaper model.
+      emailModel: env.AI_EMAIL_MODEL || 'claude-haiku-5-5',
+    },
+    gmail: loadGmail(env),
   };
 }
 

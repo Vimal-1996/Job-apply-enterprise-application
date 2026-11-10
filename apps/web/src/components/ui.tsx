@@ -22,7 +22,7 @@ export function Brand() {
   );
 }
 
-type Tone = 'neutral' | 'primary' | 'success' | 'warning' | 'danger';
+export type Tone = 'neutral' | 'primary' | 'success' | 'warning' | 'danger';
 export function Badge({ tone = 'neutral', dot = false, children }: { tone?: Tone; dot?: boolean; children: ReactNode }) {
   return (
     <span className={`badge ${tone === 'neutral' ? '' : tone}`}>
