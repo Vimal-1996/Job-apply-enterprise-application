@@ -67,94 +67,119 @@ export function dateRange(start: string | null, end: string | null, current: boo
   return [from, to].filter(Boolean).join(layout === 'workday' ? ' - ' : ' – ');
 }
 
-const run = (text: string, opts: { bold?: boolean; italics?: boolean; size?: number } = {}) =>
-  new TextRun({ text, bold: opts.bold, italics: opts.italics, font: FONT, size: opts.size ?? 21 });
+/**
+ * The resume as a list of plain blocks, the same for every file format, so
+ * the Word and PDF files carry identical text in identical order.
+ */
+export type ResumeBlock =
+  | { kind: 'name'; text: string; center: boolean }
+  | { kind: 'line'; text: string; bold?: boolean; italics?: boolean; center?: boolean; size?: number; after?: number }
+  | { kind: 'heading'; text: string }
+  | { kind: 'bullet'; text: string }
+  | { kind: 'gap' };
 
-const line = (text: string, opts: { bold?: boolean; italics?: boolean; after?: number; center?: boolean; size?: number } = {}) =>
-  new Paragraph({
-    alignment: opts.center ? AlignmentType.CENTER : undefined,
-    spacing: { after: opts.after ?? 40 },
-    children: [run(text, opts)],
-  });
-
-const bullet = (text: string) => new Paragraph({ numbering: { reference: 'bullets', level: 0 }, spacing: { after: 40 }, children: [run(text)] });
-
-/** A real Word "Heading 1", so parsers that read styles find the section. */
-const heading = (text: string) =>
-  new Paragraph({
-    heading: HeadingLevel.HEADING_1,
-    spacing: { before: 240, after: 80 },
-    border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '999999', space: 2 } },
-    children: [new TextRun({ text: text.toUpperCase(), bold: true, size: 24, font: FONT, color: '000000' })],
-  });
-
-const gap = () => new Paragraph({ spacing: { after: 80 }, children: [] });
-
-export function resumeParagraphs(p: CandidateProfile, layout: ResumeLayout = 'standard'): Paragraph[] {
+export function resumeBlocks(p: CandidateProfile, layout: ResumeLayout = 'standard'): ResumeBlock[] {
   const wd = layout === 'workday';
-  const out: Paragraph[] = [];
+  const out: ResumeBlock[] = [];
+  const line = (text: string, opts: Omit<Extract<ResumeBlock, { kind: 'line' }>, 'kind' | 'text'> = {}) => out.push({ kind: 'line', text, ...opts });
+  const heading = (text: string) => out.push({ kind: 'heading', text });
+  const bullet = (text: string) => out.push({ kind: 'bullet', text });
+  const gap = () => out.push({ kind: 'gap' });
 
-  if (p.fullName) {
-    out.push(
-      new Paragraph({
-        heading: HeadingLevel.TITLE,
-        alignment: wd ? undefined : AlignmentType.CENTER,
-        spacing: { after: 40 },
-        children: [new TextRun({ text: p.fullName, bold: true, size: 36, font: FONT, color: '000000' })],
-      }),
-    );
-  }
-  if (p.headline) out.push(line(p.headline, { center: !wd, size: 24 }));
+  if (p.fullName) out.push({ kind: 'name', text: p.fullName, center: !wd });
+  if (p.headline) line(p.headline, { center: !wd, size: 24 });
   const contact = [p.email, p.phone, p.location].filter((x): x is string => Boolean(x));
-  if (wd) contact.forEach((c) => out.push(line(c, { after: 0 })));
-  else if (contact.length) out.push(line(contact.join(' | '), { center: true, size: 20 }));
-  out.push(gap());
+  if (wd) contact.forEach((c) => line(c, { after: 0 }));
+  else if (contact.length) line(contact.join(' | '), { center: true, size: 20 });
+  gap();
 
-  if (p.summary) out.push(heading('Summary'), line(p.summary));
+  if (p.summary) {
+    heading('Summary');
+    line(p.summary);
+  }
 
   if (p.workHistory.length) {
-    out.push(heading(wd ? 'Work Experience' : 'Experience'));
+    heading(wd ? 'Work Experience' : 'Experience');
     for (const w of p.workHistory) {
-      out.push(line(w.title, { bold: true, after: 0 }));
-      out.push(line(w.company, { after: 0 }));
-      if (w.location) out.push(line(w.location, { after: 0 }));
+      line(w.title, { bold: true, after: 0 });
+      line(w.company, { after: 0 });
+      if (w.location) line(w.location, { after: 0 });
       const dates = dateRange(w.startDate, w.endDate, w.current, layout);
-      if (dates) out.push(line(dates, { italics: !wd }));
-      for (const h of w.highlights) out.push(bullet(h));
-      out.push(gap());
+      if (dates) line(dates, { italics: !wd });
+      w.highlights.forEach(bullet);
+      gap();
     }
   }
 
   if (p.education.length) {
-    out.push(heading('Education'));
+    heading('Education');
     for (const e of p.education) {
       if (wd) {
         // One field per line, in the order Workday's Education section asks for them.
-        out.push(line(e.institution, { bold: true, after: 0 }));
-        if (e.degree) out.push(line(e.degree, { after: 0 }));
-        if (e.field) out.push(line(e.field, { after: 0 }));
-        if (e.endYear) out.push(line(String(e.endYear), { after: 0 }));
+        line(e.institution, { bold: true, after: 0 });
+        if (e.degree) line(e.degree, { after: 0 });
+        if (e.field) line(e.field, { after: 0 });
+        if (e.endYear) line(String(e.endYear), { after: 0 });
       } else {
         const what = [e.degree, e.field].filter(Boolean).join(', ');
-        out.push(line(what || e.institution, { bold: true, after: 0 }));
+        line(what || e.institution, { bold: true, after: 0 });
         const where = [what ? e.institution : null, e.endYear ? String(e.endYear) : null].filter(Boolean).join(' | ');
-        if (where) out.push(line(where, { after: 0 }));
+        if (where) line(where, { after: 0 });
       }
-      out.push(gap());
+      gap();
     }
   }
 
-  if (p.skills.length) out.push(heading('Skills'), line(p.skills.join(', ')));
-  if (p.certifications.length) {
-    out.push(heading('Certifications'));
-    for (const c of p.certifications) out.push(wd ? line(c, { after: 0 }) : bullet(c));
+  if (p.skills.length) {
+    heading('Skills');
+    line(p.skills.join(', '));
   }
-  if (p.languages.length) out.push(heading('Languages'), line(p.languages.join(', ')));
+  if (p.certifications.length) {
+    heading('Certifications');
+    for (const c of p.certifications) (wd ? line(c, { after: 0 }) : bullet(c));
+  }
+  if (p.languages.length) {
+    heading('Languages');
+    line(p.languages.join(', '));
+  }
   if (p.links.length) {
-    out.push(heading('Websites'));
-    for (const l of p.links) out.push(line(l, { after: 0 }));
+    heading('Websites');
+    for (const l of p.links) line(l, { after: 0 });
   }
   return out;
+}
+
+const run = (text: string, opts: { bold?: boolean; italics?: boolean; size?: number } = {}) =>
+  new TextRun({ text, bold: opts.bold, italics: opts.italics, font: FONT, size: opts.size ?? 21 });
+
+function toParagraph(b: ResumeBlock): Paragraph {
+  switch (b.kind) {
+    case 'name':
+      return new Paragraph({
+        heading: HeadingLevel.TITLE,
+        alignment: b.center ? AlignmentType.CENTER : undefined,
+        spacing: { after: 40 },
+        children: [new TextRun({ text: b.text, bold: true, size: 36, font: FONT, color: '000000' })],
+      });
+    case 'line':
+      return new Paragraph({ alignment: b.center ? AlignmentType.CENTER : undefined, spacing: { after: b.after ?? 40 }, children: [run(b.text, b)] });
+    case 'heading':
+      // A real Word "Heading 1", so parsers that read styles find the section.
+      return new Paragraph({
+        heading: HeadingLevel.HEADING_1,
+        spacing: { before: 240, after: 80 },
+        border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '999999', space: 2 } },
+        children: [new TextRun({ text: b.text.toUpperCase(), bold: true, size: 24, font: FONT, color: '000000' })],
+      });
+    case 'bullet':
+      return new Paragraph({ numbering: { reference: 'bullets', level: 0 }, spacing: { after: 40 }, children: [run(b.text)] });
+    case 'gap':
+      return new Paragraph({ spacing: { after: 80 }, children: [] });
+  }
+}
+
+export function resumeParagraphs(p: CandidateProfile, layout: ResumeLayout = 'standard'): Paragraph[] {
+  return resumeBlocks(p, layout).map(toParagraph);
 }
 
 export async function buildResumeDocx(p: CandidateProfile, layout: ResumeLayout = 'standard'): Promise<Buffer> {
@@ -175,11 +200,20 @@ export async function buildResumeDocx(p: CandidateProfile, layout: ResumeLayout 
   return Packer.toBuffer(doc);
 }
 
+export const RESUME_FORMATS = ['docx', 'pdf'] as const;
+export type ResumeFormat = (typeof RESUME_FORMATS)[number];
+
+/** The ?format= query value: docx unless it says pdf; null if it's something else. */
+export function parseFormat(v: unknown): ResumeFormat | null {
+  if (v === undefined || v === null || v === '') return 'docx';
+  return RESUME_FORMATS.includes(v as ResumeFormat) ? (v as ResumeFormat) : null;
+}
+
 /** A safe download name, e.g. "Jane Doe - Acme resume.docx". */
-export function resumeFileName(name: string | null, company: string | null): string {
+export function resumeFileName(name: string | null, company: string | null, format: ResumeFormat = 'docx'): string {
   const part = (s: string | null) => (s ?? '').replace(/[^\p{L}\p{N} ._-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 60);
   const base = [part(name), part(company)].filter(Boolean).join(' - ') || 'Tailored';
-  return `${base} resume.docx`;
+  return `${base} resume.${format}`;
 }
 
 export interface ResumeCheck {
@@ -187,7 +221,6 @@ export interface ResumeCheck {
   where: string;
   message: string;
 }
-
 
 /**
  * What the profile is missing that Workday (and most ATS) ask for. These are

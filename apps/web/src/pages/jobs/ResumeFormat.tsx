@@ -1,5 +1,22 @@
 import { Link } from 'react-router-dom';
 import type { ResumeCheck } from '../../api/types';
+import { FILE_FORMATS, type FileFormat } from './tailorView';
+
+/** Chooses the downloaded file's format: PDF or Word. */
+export function FormatSelect(props: { value: FileFormat; onChange: (f: FileFormat) => void; disabled?: boolean }) {
+  return (
+    <label className="row" style={{ gap: 6 }}>
+      <span className="muted">Format</span>
+      <select className="input" style={{ width: 'auto' }} value={props.value} onChange={(e) => props.onChange(e.target.value as FileFormat)} disabled={props.disabled}>
+        {FILE_FORMATS.map((f) => (
+          <option key={f.value} value={f.value}>
+            {f.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 /** The "Workday-friendly layout" option and what the profile is missing, shown next to a resume download. */
 export function ResumeFormat(props: { workday: boolean; onChange: (workday: boolean) => void; checks: ResumeCheck[]; suggested?: boolean }) {

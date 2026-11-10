@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Suggestion } from '../../api/types';
-import { acceptAllIds, counts, finalText, isWorkdayJob, suggestionLabel } from './tailorView';
+import { acceptAllIds, counts, documentUrl, finalText, isWorkdayJob, shouldAutoStart, suggestionLabel } from './tailorView';
 
 const s = (over: Partial<Suggestion>): Suggestion => ({
   id: 'a',
@@ -47,5 +47,25 @@ describe('tailorView', () => {
     ];
     expect(acceptAllIds(list)).toEqual(['1']);
     expect(counts(list)).toEqual({ accepted: 1, rejected: 1, pending: 2 });
+  });
+});
+
+describe('documentUrl', () => {
+  it('adds only the options that differ from the defaults', () => {
+    expect(documentUrl('/profile/document', { format: 'docx' })).toBe('/profile/document');
+    expect(documentUrl('/profile/document', { format: 'pdf' })).toBe('/profile/document?format=pdf');
+    expect(documentUrl('/jobs/1/resume-draft/document', { format: 'pdf', workday: true })).toBe('/jobs/1/resume-draft/document?format=pdf&layout=workday');
+    expect(documentUrl('/jobs/1/resume-draft/document', { format: 'docx', workday: true })).toBe('/jobs/1/resume-draft/document?layout=workday');
+  });
+});
+
+describe('shouldAutoStart', () => {
+  const draft = { status: 'none' as const, aiEnabled: true };
+  it('starts only for a matched job with no suggestions yet, when AI is set up', () => {
+    expect(shouldAutoStart(draft, { details: {} })).toBe(true);
+    expect(shouldAutoStart(draft, { details: null })).toBe(false);
+    expect(shouldAutoStart({ ...draft, aiEnabled: false }, { details: {} })).toBe(false);
+    expect(shouldAutoStart({ ...draft, status: 'ready' }, { details: {} })).toBe(false);
+    expect(shouldAutoStart({ ...draft, status: 'failed' }, { details: {} })).toBe(false);
   });
 });

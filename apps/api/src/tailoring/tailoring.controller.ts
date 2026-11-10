@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Get, HttpCode, Param, Patch, Post, Query, StreamableFile } from '@nestjs/common';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators';
-import { parseLayout } from '../resume-doc/resume-docx';
+import { CONTENT_TYPES, parseResumeQuery } from '../resume-doc/resume-file';
 import { attachmentDisposition } from '../resumes/resume-files';
 import { parseDecisions } from './tailoring.schema';
 import { TailoringService } from './tailoring.service';
@@ -13,9 +13,7 @@ function jobId(id: string): string {
   return id;
 }
 
-const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-
-/** A resume tailored to one of the user's jobs: suggestions, the user's decisions, and the Word file. */
+/** A resume tailored to one of the user's jobs: suggestions, the user's decisions, and the Word or PDF file. */
 @Controller('jobs/:id/resume-draft')
 export class TailoringController {
   constructor(private readonly tailoring: TailoringService) {}
@@ -40,12 +38,14 @@ export class TailoringController {
     return this.tailoring.decide(user.id, jobId(id), updates);
   }
 
-  /** The tailored resume (.docx) with only the accepted changes. `?layout=workday` for Workday's resume autofill. */
+  /**
+   * The tailored resume with only the accepted changes. `?format=pdf` for a PDF
+   * (Word by default); `?layout=workday` for Workday's resume autofill.
+   */
   @Get('document')
-  async document(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('layout') layoutParam?: string) {
-    const layout = parseLayout(layoutParam);
-    if (!layout) throw new BadRequestException('layout must be standard or workday');
-    const { fileName, bytes } = await this.tailoring.document(user.id, jobId(id), layout);
-    return new StreamableFile(bytes, { type: DOCX, disposition: attachmentDisposition(fileName), length: bytes.length });
+  async document(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('layout') layoutParam?: string, @Query('format') formatParam?: string) {
+    const { layout, format } = parseResumeQuery(layoutParam, formatParam);
+    const { fileName, bytes } = await this.tailoring.document(user.id, jobId(id), layout, format);
+    return new StreamableFile(bytes, { type: CONTENT_TYPES[format], disposition: attachmentDisposition(fileName), length: bytes.length });
   }
 }

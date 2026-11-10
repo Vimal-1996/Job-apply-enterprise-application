@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link, useParams } from 'react-router-dom';
 import { ApiError, apiDownload, apiGet, apiPatch, apiPost } from '../../api/client';
@@ -7,8 +7,8 @@ import { Badge, Spinner } from '../../components/ui';
 import { formatDateTime } from '../admin/format';
 import { POLL_MS } from './JobsPage';
 import { jobTitle } from './jobView';
-import { ResumeFormat } from './ResumeFormat';
-import { acceptAllIds, counts, finalText, isWorkdayJob, suggestionLabel } from './tailorView';
+import { FormatSelect, ResumeFormat } from './ResumeFormat';
+import { acceptAllIds, counts, documentUrl, finalText, isWorkdayJob, shouldAutoStart, suggestionLabel, type FileFormat } from './tailorView';
 
 const message = (e: unknown, fallback: string) => (e instanceof ApiError || e instanceof Error ? e.message : fallback);
 
@@ -20,7 +20,8 @@ interface Update {
 
 /**
  * Tailor the resume to one job: Claude suggests changes, the user accepts,
- * edits or rejects each, then downloads a Word resume with only the accepted ones.
+ * edits or rejects each, then downloads a PDF or Word resume with only the
+ * accepted ones. Suggestions start as soon as the page opens.
  */
 export function TailorResumePage() {
   const { id = '' } = useParams();
@@ -34,6 +35,9 @@ export function TailorResumePage() {
   const [confirmRedo, setConfirmRedo] = useState(false);
   /** null until the user chooses: then the job's own default (Workday jobs get the Workday layout). */
   const [workdayChoice, setWorkdayChoice] = useState<boolean | null>(null);
+  const [format, setFormat] = useState<FileFormat>('pdf');
+  /** Starts suggestions once per visit, even if effects run twice (React's dev mode). */
+  const autoStarted = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -69,11 +73,21 @@ export function TailorResumePage() {
     }
   };
 
-  const start = () =>
-    act(async () => {
-      setDraft(await apiPost<DraftView>(base, token));
-      setConfirmRedo(false);
-    }, 'Could not start making suggestions.');
+  const start = useCallback(
+    () =>
+      act(async () => {
+        setDraft(await apiPost<DraftView>(base, token));
+        setConfirmRedo(false);
+      }, 'Could not start making suggestions.'),
+    [base, token],
+  );
+
+  // Opening this page (the job's "Tailor my resume" button) starts the suggestions: no extra click.
+  useEffect(() => {
+    if (!job || !draft || autoStarted.current || !shouldAutoStart(draft, job)) return;
+    autoStarted.current = true;
+    void start();
+  }, [job, draft, start]);
 
   const decide = (updates: Update[]) =>
     act(async () => setDraft(await apiPatch<DraftView>(base, token, { decisions: updates })), 'Could not save your choice.');
@@ -81,7 +95,7 @@ export function TailorResumePage() {
   const workdaySuggested = job ? isWorkdayJob(job) : false;
   const workday = workdayChoice ?? workdaySuggested;
   const download = () =>
-    act(() => apiDownload(`${base}/document${workday ? '?layout=workday' : ''}`, token, 'Tailored resume.docx'), 'Could not create the resume.');
+    act(() => apiDownload(documentUrl(`${base}/document`, { format, workday }), token, `Tailored resume.${format}`), 'Could not create the resume.');
 
   if (loadError)
     return (
@@ -131,14 +145,17 @@ export function TailorResumePage() {
           ) : !job.details ? (
             <p className="muted">Wait until this job has been matched, then come back to tailor your resume to it.</p>
           ) : (
-            <div className="empty" style={{ justifyItems: 'start', textAlign: 'left' }}>
-              <p style={{ margin: 0 }}>
-                We'll compare your profile with this job and suggest rewording, keywords and a summary aimed at it. Anything your profile
-                doesn't show is asked as a question, never added for you.
-              </p>
-              <button className="btn btn-primary" onClick={() => void start()} disabled={busy}>
-                {busy && <Spinner small />} Get suggestions
-              </button>
+            <div className="row" role="status" aria-live="polite">
+              {error && !busy ? (
+                // Starting failed (the error is shown above): let the user try again.
+                <button className="btn btn-primary" onClick={() => void start()}>
+                  Try again
+                </button>
+              ) : (
+                <>
+                  <Spinner small /> Starting your suggestions…
+                </>
+              )}
             </div>
           )}
         </div>
@@ -181,8 +198,9 @@ export function TailorResumePage() {
                     Accept all from your resume ({bulk.length})
                   </button>
                 )}
+                <FormatSelect value={format} onChange={setFormat} disabled={c.accepted === 0} />
                 <button className="btn btn-primary" onClick={() => void download()} disabled={busy || c.accepted === 0}>
-                  {busy && <Spinner small />} Download resume (.docx)
+                  {busy && <Spinner small />} Download resume
                 </button>
               </div>
             </div>
