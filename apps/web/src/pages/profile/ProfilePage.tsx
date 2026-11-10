@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link } from 'react-router-dom';
 import { ApiError, apiDownload, apiGet, apiPost, apiPut } from '../../api/client';
-import type { CandidateProfile, JobPreferences, ProfileView, ResumeCheck, WorkMode } from '../../api/types';
+import type { CandidateProfile, JobPreferences, ProfileView, WorkMode } from '../../api/types';
 import { Badge, Spinner } from '../../components/ui';
 import { formatDateTime } from '../admin/format';
-import { ResumeFormat } from '../jobs/ResumeFormat';
+import { FormatSelect } from '../jobs/ResumeFormat';
+import { documentUrl, type FileFormat } from '../jobs/tailorView';
 import {
   EMPTY_EDUCATION,
   EMPTY_WORK,
@@ -174,32 +175,24 @@ export function ProfilePage() {
         ) : null}
       </div>
 
-      {view.profile && !editing && <ResumeDownloadCard token={token} version={`${view.parsedAt}|${view.editedAt}`} />}
+      {view.profile && !editing && <ResumeDownloadCard token={token} />}
 
       <PreferencesCard token={token} />
     </>
   );
 }
 
-/** The profile as a clean Word resume (no tailoring), optionally in the Workday layout. */
-function ResumeDownloadCard({ token, version }: { token: string | undefined; version: string }) {
-  const [workday, setWorkday] = useState(false);
-  const [checks, setChecks] = useState<ResumeCheck[]>([]);
+/** The profile as a clean resume (no tailoring), as a PDF or Word file. */
+function ResumeDownloadCard({ token }: { token: string | undefined }) {
+  const [format, setFormat] = useState<FileFormat>('pdf');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Checked again whenever the profile is read or edited.
-  useEffect(() => {
-    apiGet<ResumeCheck[]>('/profile/resume-checks', token)
-      .then(setChecks)
-      .catch(() => setChecks([]));
-  }, [token, version]);
 
   const download = async () => {
     setBusy(true);
     setError(null);
     try {
-      await apiDownload(`/profile/document${workday ? '?layout=workday' : ''}`, token, 'Resume.docx');
+      await apiDownload(documentUrl('/profile/document', { format }), token, `Resume.${format}`);
     } catch (e) {
       setError(message(e, 'Could not create the resume.'));
     } finally {
@@ -212,19 +205,22 @@ function ResumeDownloadCard({ token, version }: { token: string | undefined; ver
       <div className="row">
         <h3>Download as a resume</h3>
         <span className="spacer" />
-        <button className="btn btn-ghost" onClick={() => void download()} disabled={busy}>
-          {busy && <Spinner small />} Download (.docx)
-        </button>
+        <div className="row" style={{ gap: 8 }}>
+          <FormatSelect value={format} onChange={setFormat} />
+          <button className="btn btn-ghost" onClick={() => void download()} disabled={busy}>
+            {busy && <Spinner small />} Download
+          </button>
+        </div>
       </div>
       <p className="muted" style={{ margin: 0 }}>
-        Your profile as a Word resume. To tailor it to a job, open the job and choose “Tailor my resume”.
+        Your profile as a clean, ATS-friendly resume. To tailor it to a job (and get a Workday-friendly layout), open the job and choose
+        “Tailor my resume”.
       </p>
       {error && (
         <p role="alert" className="notice error">
           {error}
         </p>
       )}
-      <ResumeFormat workday={workday} onChange={setWorkday} checks={checks} />
     </div>
   );
 }

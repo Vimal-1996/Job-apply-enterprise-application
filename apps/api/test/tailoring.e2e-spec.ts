@@ -143,6 +143,10 @@ describe('resume tailoring (e2e)', () => {
     expect((doc.body as Buffer).subarray(0, 2).toString()).toBe('PK'); // a .docx is a zip
     await as('jane-token').get(`${base}/document?layout=workday`).expect(200);
     await as('jane-token').get(`${base}/document?layout=fancy`).expect(400);
+    const pdf = await as('jane-token').get(`${base}/document?format=pdf&layout=workday`).expect(200);
+    expect(pdf.headers['content-type']).toContain('application/pdf');
+    expect(pdf.headers['content-disposition']).toContain('filename="Jane Doe - Acme resume.pdf"');
+    await as('jane-token').get(`${base}/document?format=rtf`).expect(400);
     expect(Array.isArray(draft.checks)).toBe(true);
   });
 
@@ -157,5 +161,8 @@ describe('resume tailoring (e2e)', () => {
     const doc = await as('jane-token').get('/profile/document?layout=workday').expect(200);
     expect(doc.headers['content-disposition']).toContain('filename="Jane Doe resume.docx"');
     await as('jane-token').get('/profile/document?layout=other').expect(400);
+    const pdf = await as('jane-token').get('/profile/document?format=pdf').expect(200);
+    expect(pdf.headers['content-type']).toContain('application/pdf');
+    expect(pdf.headers['content-disposition']).toContain('filename="Jane Doe resume.pdf"');
   });
 });

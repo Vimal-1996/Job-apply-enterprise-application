@@ -13,7 +13,8 @@ import { JobsService } from '../jobs/jobs.service';
 import { ProfileService } from '../profile/profile.service';
 import { DraftRow, DraftStatus, DraftStore } from './draft-store';
 import { RESUME_TAILOR, ResumeTailor, TailorError, TailorInput } from './resume-tailor';
-import { buildResumeDocx, refreshFacts, resumeChecks, ResumeCheck, resumeFileName, ResumeLayout } from '../resume-doc/resume-docx';
+import { refreshFacts, resumeChecks, ResumeCheck, resumeFileName, ResumeFormat, ResumeLayout } from '../resume-doc/resume-docx';
+import { buildResumeFile } from '../resume-doc/resume-file';
 import { CandidateProfile } from '../profile/profile.schema';
 import { applySuggestions, DecisionUpdate, Suggestion, TAILORING_LIMITS, tidySuggestions } from './tailoring.schema';
 
@@ -110,13 +111,13 @@ export class TailoringService {
     return this.get(userId, jobId);
   }
 
-  /** The tailored resume as a Word file, in the chosen layout. */
-  async document(userId: string, jobId: string, layout: ResumeLayout = 'standard'): Promise<{ fileName: string; bytes: Buffer }> {
+  /** The tailored resume as a Word or PDF file, in the chosen layout. */
+  async document(userId: string, jobId: string, layout: ResumeLayout = 'standard', format: ResumeFormat = 'docx'): Promise<{ fileName: string; bytes: Buffer }> {
     const job = await this.jobs.get(userId, jobId);
     const draft = await this.store.get(userId, jobId);
     if (!draft?.baseProfile || !draft.suggestions) throw new ConflictException('Get suggestions for this job first');
     const profile = await this.finalProfile(userId, draft.baseProfile, draft.suggestions);
-    return { fileName: resumeFileName(profile.fullName, job.company), bytes: await buildResumeDocx(profile, layout) };
+    return { fileName: resumeFileName(profile.fullName, job.company, format), bytes: await buildResumeFile(profile, layout, format) };
   }
 
   /**

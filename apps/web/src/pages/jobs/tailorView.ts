@@ -47,3 +47,22 @@ export function counts(suggestions: Suggestion[]) {
  */
 export const acceptAllIds = (suggestions: Suggestion[]) =>
   suggestions.filter((s) => s.decision === 'pending' && s.source === 'resume').map((s) => s.id);
+
+export type FileFormat = 'docx' | 'pdf';
+export const FILE_FORMATS: { value: FileFormat; label: string }[] = [
+  { value: 'pdf', label: 'PDF' },
+  { value: 'docx', label: 'Word (.docx)' },
+];
+
+/** The download address for a resume in the chosen format (and, for a job, layout). */
+export function documentUrl(path: string, opts: { format: FileFormat; workday?: boolean }): string {
+  const q = new URLSearchParams();
+  if (opts.format !== 'docx') q.set('format', opts.format);
+  if (opts.workday) q.set('layout', 'workday');
+  const s = q.toString();
+  return s ? `${path}?${s}` : path;
+}
+
+/** Suggestions start on their own when the page opens, unless they exist already or can't be made yet. */
+export const shouldAutoStart = (draft: Pick<DraftView, 'status' | 'aiEnabled'>, job: { details: unknown }) =>
+  draft.status === 'none' && draft.aiEnabled && Boolean(job.details);

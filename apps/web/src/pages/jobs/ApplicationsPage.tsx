@@ -19,7 +19,7 @@ import { ApiError, apiGet, apiPatch } from '../../api/client';
 import type { ApplicationStatus, JobSummary } from '../../api/types';
 import { Spinner } from '../../components/ui';
 import { formatDate } from '../admin/format';
-import { groupByStatus, moveJob, pipelineCounts, STATUSES, statusInfo } from './applicationView';
+import { groupByStatus, moveJob, pipelineCounts, statusInfo } from './applicationView';
 import { MatchBadge } from './JobsPage';
 import { jobTitle } from './jobView';
 
@@ -28,7 +28,7 @@ const label = (s: ApplicationStatus) => statusInfo(s).label;
 /**
  * The application pipeline as a board: one column per stage. Drag a job to
  * another column (mouse, touch, or keyboard: Space to pick up, arrows to
- * move, Space to drop) or use its "Move to" menu. Changes save straight away.
+ * move, Space to drop). Changes save straight away.
  */
 export function ApplicationsPage() {
   const token = useAuth().user?.access_token;
@@ -104,7 +104,7 @@ export function ApplicationsPage() {
     <>
       <header className="page-head">
         <h1>Applications</h1>
-        <p>Drag a job to another stage as things move along, or use its “Move to” menu. Changes save straight away.</p>
+        <p>Drag a job to another stage as things move along. Changes save straight away.</p>
       </header>
 
       {jobs.length === 0 ? (
@@ -138,13 +138,13 @@ export function ApplicationsPage() {
             accessibility={{
               announcements,
               screenReaderInstructions: {
-                draggable: 'To move this job to another stage, press Space, use the arrow keys to choose the stage, then press Space again. Or use its Move to menu.',
+                draggable: 'To move this job to another stage, press Space, use the arrow keys to choose the stage, then press Space again.',
               },
             }}
           >
             <div className="board" aria-label="Application stages">
               {groupByStatus(jobs).map((g) => (
-                <Column key={g.value} status={g.value} title={g.label} closed={g.closed} jobs={g.jobs} onMove={move} />
+                <Column key={g.value} status={g.value} title={g.label} closed={g.closed} jobs={g.jobs} />
               ))}
             </div>
             <DragOverlay>{dragging && <CardBody job={dragging} lifted />}</DragOverlay>
@@ -155,7 +155,7 @@ export function ApplicationsPage() {
   );
 }
 
-function Column(props: { status: ApplicationStatus; title: string; closed?: boolean; jobs: JobSummary[]; onMove: (id: string, s: ApplicationStatus) => void }) {
+function Column(props: { status: ApplicationStatus; title: string; closed?: boolean; jobs: JobSummary[] }) {
   const { setNodeRef, isOver } = useDroppable({ id: props.status });
   return (
     <section ref={setNodeRef} className={`board-col${isOver ? ' over' : ''}${props.closed ? ' closed' : ''}`} aria-label={`${props.title}, ${props.jobs.length} jobs`}>
@@ -165,7 +165,7 @@ function Column(props: { status: ApplicationStatus; title: string; closed?: bool
       </div>
       <ul className="board-list">
         {props.jobs.map((j) => (
-          <DraggableCard key={j.id} job={j} onMove={props.onMove} />
+          <DraggableCard key={j.id} job={j} />
         ))}
         {props.jobs.length === 0 && <li className="board-empty muted">Drop a job here</li>}
       </ul>
@@ -173,21 +173,11 @@ function Column(props: { status: ApplicationStatus; title: string; closed?: bool
   );
 }
 
-function DraggableCard({ job, onMove }: { job: JobSummary; onMove: (id: string, s: ApplicationStatus) => void }) {
+function DraggableCard({ job }: { job: JobSummary }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: job.id });
   return (
     <li ref={setNodeRef} className="board-card" style={{ opacity: isDragging ? 0.35 : 1 }} {...attributes} {...listeners} aria-roledescription="draggable job">
       <CardBody job={job} />
-      <label className="board-move" onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-        <span className="visually-hidden">Move {jobTitle(job)} to</span>
-        <select className="input" value={job.applicationStatus} onChange={(e) => onMove(job.id, e.target.value as ApplicationStatus)}>
-          {STATUSES.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.value === job.applicationStatus ? `Move to…` : s.label}
-            </option>
-          ))}
-        </select>
-      </label>
     </li>
   );
 }
