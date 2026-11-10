@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ApplicationStatus } from '../../api/types';
-import { groupByStatus, pipelineCounts, statusInfo } from './applicationView';
+import { groupByStatus, moveJob, pipelineCounts, statusInfo } from './applicationView';
 
 const job = (id: string, applicationStatus: ApplicationStatus, statusChangedAt: string | null, createdAt = '2026-11-01') => ({
   id,
@@ -27,6 +27,15 @@ describe('applicationView', () => {
 
   it('counts the pipeline', () => {
     expect(pipelineCounts(jobs)).toEqual({ saved: 1, applied: 4, active: 3, interviewing: 1, offers: 0 });
+  });
+
+  it('moves a job to another stage, and leaves the list alone when nothing changes', () => {
+    const moved = moveJob(jobs, 'c', 'applied', '2026-11-10');
+    expect(moved.find((j) => j.id === 'c')).toMatchObject({ applicationStatus: 'applied', statusChangedAt: '2026-11-10' });
+    expect(groupByStatus(moved)[1].jobs.map((j) => j.id)).toEqual(['c', 'b', 'a']);
+    expect(moved.find((j) => j.id === 'a')).toBe(jobs[0]);
+    expect(moveJob(jobs, 'a', 'applied', 'x')).toBe(jobs);
+    expect(moveJob(jobs, 'nope', 'offer', 'x')).toBe(jobs);
   });
 
   it('labels statuses', () => {
