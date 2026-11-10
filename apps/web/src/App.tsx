@@ -14,6 +14,7 @@ import { Landing } from './pages/Landing';
 import { NotFound } from './pages/NotFound';
 import { JobDetailPage } from './pages/jobs/JobDetailPage';
 import { JobsPage } from './pages/jobs/JobsPage';
+import { TailorResumePage } from './pages/jobs/TailorResumePage';
 import { ProfilePage } from './pages/profile/ProfilePage';
 import { ResumePage } from './pages/resume/ResumePage';
 
@@ -117,6 +118,7 @@ export function App() {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/jobs" element={<JobsPage />} />
         <Route path="/jobs/:id" element={<JobDetailPage />} />
+        <Route path="/jobs/:id/resume" element={<TailorResumePage />} />
       </Route>
       {/* Admin-only. Non-admins get a 404, not a 403, so these pages stay invisible. */}
       <Route

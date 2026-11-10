@@ -115,6 +115,11 @@ export function JobDetailPage() {
                 Apply on company site
               </a>
             )}
+            {job.details && (
+              <Link className="btn btn-primary" to={`/jobs/${job.id}/resume`}>
+                Tailor my resume
+              </Link>
+            )}
             {!matching && (
               <button className="btn btn-ghost" onClick={() => void rematch()} disabled={busy}>
                 Match again

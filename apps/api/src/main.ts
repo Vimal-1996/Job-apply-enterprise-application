@@ -13,7 +13,8 @@ async function bootstrap() {
   if (config.trustProxyHops) app.set('trust proxy', config.trustProxyHops);
   if (config.basePath) app.setGlobalPrefix(config.basePath);
   app.use(helmet());
-  app.enableCors({ origin: config.corsOrigins, credentials: false });
+  // Content-Disposition is exposed so the web app can name downloaded files.
+  app.enableCors({ origin: config.corsOrigins, credentials: false, exposedHeaders: ['Content-Disposition'] });
   app.enableShutdownHooks();
   await app.listen(config.port, '0.0.0.0');
 }
