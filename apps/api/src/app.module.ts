@@ -5,12 +5,13 @@ import { DatabaseModule } from './db/database.module';
 import { HealthController } from './health/health.controller';
 import { IdentityModule } from './identity/identity.module';
 import { MeController } from './me/me.controller';
+import { JobsModule } from './jobs/jobs.module';
 import { ProfileModule } from './profile/profile.module';
 import { ResumesModule } from './resumes/resumes.module';
 import { SignupModule } from './signup/signup.module';
 
 @Module({
-  imports: [DatabaseModule, ResumesModule, ProfileModule, IdentityModule, AuthModule, AdminModule, SignupModule],
+  imports: [DatabaseModule, ResumesModule, ProfileModule, JobsModule, IdentityModule, AuthModule, AdminModule, SignupModule],
   controllers: [HealthController, MeController],
 })
 export class AppModule {}

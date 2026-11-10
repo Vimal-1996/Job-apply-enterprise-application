@@ -12,6 +12,8 @@ import { Callback } from './pages/Callback';
 import { Dashboard } from './pages/Dashboard';
 import { Landing } from './pages/Landing';
 import { NotFound } from './pages/NotFound';
+import { JobDetailPage } from './pages/jobs/JobDetailPage';
+import { JobsPage } from './pages/jobs/JobsPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
 import { ResumePage } from './pages/resume/ResumePage';
 
@@ -46,6 +48,7 @@ function Shell() {
           </NavLink>
           {isJobSeeker && <NavLink to="/resume">Resume</NavLink>}
           {isJobSeeker && <NavLink to="/profile">Profile</NavLink>}
+          {isJobSeeker && <NavLink to="/jobs">Jobs</NavLink>}
           {isJobSeeker && (
             <a aria-disabled title="Coming soon">
               <span className="label-long">Applications</span> <span className="soon">soon</span>
@@ -112,6 +115,8 @@ export function App() {
         <Route path="/account" element={<Account />} />
         <Route path="/resume" element={<ResumePage />} />
         <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/jobs" element={<JobsPage />} />
+        <Route path="/jobs/:id" element={<JobDetailPage />} />
       </Route>
       {/* Admin-only. Non-admins get a 404, not a 403, so these pages stay invisible. */}
       <Route

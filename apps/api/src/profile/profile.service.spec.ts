@@ -109,7 +109,7 @@ function fakeExtractor() {
   };
 }
 
-async function setup(opts: { ai?: boolean } = {}) {
+async function setup(opts: { ai?: boolean; readNewUploads?: boolean } = {}) {
   const pool = await testPool();
   await migrate(pool);
   const users = new PgUserStore(pool);
@@ -129,7 +129,8 @@ async function setup(opts: { ai?: boolean } = {}) {
   const fake = fakeExtractor();
   const store = new ProfileStore(pool);
   const service = new ProfileService(store, resumes, opts.ai === false ? null : fake.extractor);
-  service.onModuleInit();
+  // Off = a resume uploaded before profiles existed (nothing read it).
+  if (opts.readNewUploads !== false) service.onModuleInit();
   const upload = async (userId: string, name = 'Jane CV.pdf', body = pdfBytes, type = PDF) => {
     const { resume, upload: link } = await resumes.requestUpload(userId, { fileName: name, contentType: type as typeof PDF, sizeBytes: body.length });
     objects.set(link.fields.key, body);
@@ -280,6 +281,47 @@ describe('ProfileService', () => {
     expect(await service.get('u1')).toMatchObject({ status: 'none', aiEnabled: false });
     await expect(service.parseCurrentResume('u1')).rejects.toThrow("isn't set up");
     expect((await service.update('u1', SAMPLE_PROFILE)).status).toBe('ready');
+  });
+
+  it('reads an existing resume once when the user has no profile yet', async () => {
+    const { service, fake, upload } = await setup({ readNewUploads: false });
+    expect(await service.readIfMissing('u1')).toBe(false); // no resume: nothing to read
+    await upload('u1', 'Old CV.pdf');
+    expect((await service.get('u1')).status).toBe('none');
+
+    const release = fake.hold();
+    // Sign-in and the Profile page can ask at the same moment: only one reading starts.
+    expect(await Promise.all([service.readIfMissing('u1'), service.readIfMissing('u1')])).toEqual([true, true]);
+    expect(await service.get('u1')).toMatchObject({ status: 'parsing', sourceFileName: 'Old CV.pdf' });
+    release();
+    await service.whenIdle('u1');
+    expect((await service.get('u1')).status).toBe('ready');
+    expect(fake.calls).toHaveLength(1);
+
+    // Never again, now a profile exists.
+    expect(await service.readIfMissing('u1')).toBe(false);
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it('does not retry an automatic reading that failed, or touch a profile typed in by hand', async () => {
+    const { service, fake, upload } = await setup({ readNewUploads: false });
+    await upload('u1');
+    fake.willFail(new ExtractionError("This resume couldn't be read"));
+    expect(await service.readIfMissing('u1')).toBe(true);
+    await service.whenIdle('u1');
+    expect((await service.get('u1')).status).toBe('failed');
+    expect(await service.readIfMissing('u1')).toBe(false);
+
+    await upload('u2');
+    await service.update('u2', SAMPLE_PROFILE);
+    expect(await service.readIfMissing('u2')).toBe(false);
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it('without AI configured, never reads automatically', async () => {
+    const { service, upload } = await setup({ ai: false, readNewUploads: false });
+    await upload('u1');
+    expect(await service.readIfMissing('u1')).toBe(false);
   });
 
   it("deleting the user's account removes their profile and preferences", async () => {

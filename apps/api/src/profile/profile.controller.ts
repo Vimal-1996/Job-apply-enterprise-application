@@ -9,7 +9,9 @@ export class ProfileController {
   constructor(private readonly profiles: ProfileService) {}
 
   @Get('profile')
-  get(@CurrentUser() user: AuthUser) {
+  async get(@CurrentUser() user: AuthUser) {
+    // Usually already started at sign-in; waiting here means the page shows "reading", not "no profile".
+    await this.profiles.readIfMissing(user.id).catch(() => false);
     return this.profiles.get(user.id);
   }
 
