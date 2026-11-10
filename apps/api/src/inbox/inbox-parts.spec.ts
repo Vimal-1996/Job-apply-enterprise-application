@@ -1,3 +1,5 @@
+import { cleanEmailText, EMAIL_TEXT_MAX } from './email-classifier';
+import { inParallel } from './inbox.service';
 import { statusForCategory, tidyVerdicts, worthSuggesting } from './email.schema';
 import { jobEmailQuery, pkcePair } from './gmail-api';
 import { bodyText, gmailThreadUrl, htmlToText, parseFrom, parseMessage } from './gmail-message';
@@ -127,5 +129,44 @@ describe('email verdicts', () => {
     expect(worthSuggesting('rejected', 'offer')).toBe(false);
     expect(worthSuggesting('offer', 'withdrawn')).toBe(false);
     expect(worthSuggesting(null, 'saved')).toBe(false);
+  });
+});
+
+describe('cleanEmailText', () => {
+  it('shortens links, squeezes blank space and cuts long emails', () => {
+    const t = cleanEmailText('Hi Jane,\n\n\n\nApply here: https://track.example.com/c/abc?u=1&x=2 <https://x.io/y> https://z.io\n   Thanks   team');
+    expect(t).toBe('Hi Jane,\n\nApply here: [link]\nThanks team');
+    const long = cleanEmailText('word '.repeat(2000));
+    expect(long.length).toBeLessThanOrEqual(EMAIL_TEXT_MAX + 25);
+    expect(long.endsWith('[…email cut short]')).toBe(true);
+  });
+});
+
+describe('inParallel', () => {
+  it('runs at most `limit` at a time and does every item', async () => {
+    let running = 0;
+    let most = 0;
+    const done: number[] = [];
+    await inParallel([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+      running++;
+      most = Math.max(most, running);
+      await new Promise((r) => setTimeout(r, 5));
+      done.push(n);
+      running--;
+    });
+    expect(most).toBe(3);
+    expect(done.sort()).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('stops starting new items after a failure and throws it', async () => {
+    const started: number[] = [];
+    await expect(
+      inParallel([1, 2, 3, 4, 5], 2, async (n) => {
+        started.push(n);
+        if (n === 1) throw new Error('boom');
+        await new Promise((r) => setTimeout(r, 5));
+      }),
+    ).rejects.toThrow('boom');
+    expect(started.length).toBeLessThan(5);
   });
 });

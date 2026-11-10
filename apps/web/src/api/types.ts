@@ -246,6 +246,8 @@ export interface GmailConnection {
   connectedAt: string;
   /** Time ranges already read from Gmail (ISO), merged. */
   readRanges: { from: string; to: string }[];
+  /** While syncing: emails read so far of those found. */
+  progress: { done: number; total: number } | null;
 }
 
 export interface InboxView {

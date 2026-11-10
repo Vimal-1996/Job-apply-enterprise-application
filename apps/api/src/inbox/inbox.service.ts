@@ -27,6 +27,8 @@ export const INBOX_LIMITS = {
   perDay: 400,
   /** Emails per Claude request. */
   batch: 8,
+  /** Claude requests run at the same time during a sync. */
+  parallel: 4,
 };
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -44,6 +46,8 @@ export interface ConnectionView {
   connectedAt: string;
   /** The time ranges already read from Gmail (ISO), merged; a date range outside them needs a sync. */
   readRanges: { from: string; to: string }[];
+  /** While syncing: emails read so far of those found (the total grows as more dates are read). */
+  progress: { done: number; total: number } | null;
 }
 
 export interface InboxEmailView {
@@ -80,6 +84,8 @@ export class InboxService {
   private readonly accessTokens = new Map<string, { token: string; expiresAt: number }>();
   /** Syncs running in this process, by user; tests await them. */
   private readonly running = new Map<string, Promise<void>>();
+  /** How far each running sync has got, by user (kept in memory: it only matters while the sync runs). */
+  private readonly progress = new Map<string, { done: number; total: number }>();
 
   constructor(
     @Inject(INBOX_STORE) private readonly store: InboxStore,
@@ -101,7 +107,7 @@ export class InboxService {
     return {
       enabled: Boolean(this.gmail),
       aiEnabled: Boolean(this.classifier),
-      connection: conn ? connectionView(conn) : null,
+      connection: conn ? { ...connectionView(conn), progress: conn.syncStatus === 'syncing' ? (this.progress.get(userId) ?? null) : null } : null,
       emails: rows.filter(isShown).map((r) => emailView(r, byId)),
     };
   }
@@ -170,8 +176,12 @@ export class InboxService {
     const want: TimeRange = window
       ? { from: window.since.getTime(), to: Math.min(window.until.getTime(), now) }
       : { from: now - INBOX_LIMITS.defaultDays * DAY_MS, to: now };
+    this.progress.set(userId, { done: 0, total: 0 });
     const run = this.runSync(gmail, this.classifier, userId, runId, conn, want, !window).finally(() => {
-      if (this.running.get(userId) === run) this.running.delete(userId);
+      if (this.running.get(userId) === run) {
+        this.running.delete(userId);
+        this.progress.delete(userId);
+      }
     });
     this.running.set(userId, run);
     return this.view(userId);
@@ -244,11 +254,17 @@ export class InboxService {
         const todo = fresh.slice(0, Math.min(room, allowedToday));
         const todoSet = new Set(todo);
 
-        // Oldest first, so a thread's first email is linked before its replies.
+        // Batches run a few at a time. Order doesn't matter for linking: when an email
+        // is linked, the rest of its thread follows, whichever was read first.
         const read = new Map<string, Date>();
+        const progress = this.progress.get(userId);
+        if (progress) progress.total += todo.length;
+        // Oldest first, so threads usually read in order (it doesn't change the result).
         const ordered = [...todo].reverse();
-        for (let i = 0; i < ordered.length; i += INBOX_LIMITS.batch) {
-          const batch = await Promise.all(ordered.slice(i, i + INBOX_LIMITS.batch).map(async (id) => parseMessage(await gmail.getMessage(token, id))));
+        const batches: string[][] = [];
+        for (let i = 0; i < ordered.length; i += INBOX_LIMITS.batch) batches.push(ordered.slice(i, i + INBOX_LIMITS.batch));
+        await inParallel(batches, INBOX_LIMITS.parallel, async (ids) => {
+          const batch = await Promise.all(ids.map(async (id) => parseMessage(await gmail.getMessage(token, id))));
           const verdicts = await classifier.classify(
             batch.map((m) => ({ from: m.fromName ? `${m.fromName} <${m.fromAddress}>` : m.fromAddress, subject: m.subject, receivedAt: m.receivedAt, text: m.text })),
             forClaude,
@@ -258,7 +274,8 @@ export class InboxService {
             read.set(batch[n].gmailId, batch[n].receivedAt);
             known.set(batch[n].gmailId, batch[n].receivedAt);
           }
-        }
+          if (progress) progress.done += batch.length;
+        });
         room -= todo.length;
 
         // Gmail lists newest first: everything up to the first email left unread has been seen.
@@ -400,6 +417,7 @@ function connectionView(c: ConnectionRow): ConnectionView {
     lastSyncedAt: c.lastSyncedAt?.toISOString() ?? null,
     connectedAt: c.connectedAt.toISOString(),
     readRanges: toStored(c.readRanges),
+    progress: null,
   };
 }
 
@@ -422,4 +440,25 @@ function emailView(r: EmailRow, jobs: Map<string, JobSummary>): InboxEmailView {
     linkSource: job ? r.linkSource : null,
     suggestion: suggest ? { status: r.suggestedStatus! } : null,
   };
+}
+
+/**
+ * Runs `work` on each item, at most `limit` at a time. Stops starting new items
+ * after one fails, waits for those already running, then throws the first error.
+ */
+export async function inParallel<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  let failure: unknown = null;
+  const worker = async () => {
+    while (failure === null && next < items.length) {
+      const item = items[next++];
+      try {
+        await work(item);
+      } catch (e) {
+        failure ??= e;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  if (failure !== null) throw failure;
 }
