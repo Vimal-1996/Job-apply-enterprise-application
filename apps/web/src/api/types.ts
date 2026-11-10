@@ -96,3 +96,58 @@ export interface JobPreferences {
   needsSponsorship: boolean | null;
   excludedCompanies: string[];
 }
+
+export type JobSource = 'linkedin' | 'indeed' | 'other' | 'pasted';
+export type MatchStatus = 'matching' | 'ready' | 'failed';
+export type MatchVerdict = 'strong' | 'good' | 'possible' | 'weak';
+
+export interface JobSummary {
+  id: string;
+  source: JobSource;
+  url: string | null;
+  title: string | null;
+  company: string | null;
+  location: string | null;
+  matchStatus: MatchStatus;
+  score: number | null;
+  verdict: MatchVerdict | null;
+  createdAt: string;
+}
+
+export interface JobDetails {
+  title: string;
+  /** A short digest of the posting. Missing on jobs matched before it was added. */
+  overview?: string;
+  responsibilities?: string[];
+  benefits?: string[];
+  company: string | null;
+  location: string | null;
+  workMode: WorkMode | null;
+  employmentType: string | null;
+  seniority: string | null;
+  salary: string | null;
+  yearsRequired: number | null;
+  requiredSkills: string[];
+  niceToHaveSkills: string[];
+  visaSponsorship: 'offered' | 'not_offered' | 'not_stated';
+  applyUrl: string | null;
+}
+
+export interface JobMatch {
+  score: number;
+  verdict: MatchVerdict;
+  summary: string;
+  strengths: string[];
+  gaps: string[];
+  dealbreakers: string[];
+}
+
+export interface JobView extends JobSummary {
+  description: string;
+  details: JobDetails | null;
+  match: JobMatch | null;
+  matchError: string | null;
+  matchedAt: string | null;
+  /** The profile changed after this job was matched, so the match may be out of date. */
+  profileChanged: boolean;
+}

@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { Logger } from '@nestjs/common';
 import mammoth from 'mammoth';
+import { claudeErrorMessage } from '../ai/claude-errors';
 import { CandidateProfile, CandidateProfileSchema } from './profile.schema';
 
 export const PROFILE_EXTRACTOR = Symbol('PROFILE_EXTRACTOR');
@@ -76,19 +77,8 @@ export class ClaudeProfileExtractor implements ProfileExtractor {
       });
     } catch (e) {
       if (e instanceof ExtractionError) throw e;
-      if (e instanceof Anthropic.RateLimitError || e instanceof Anthropic.InternalServerError || e instanceof Anthropic.APIConnectionError) {
-        this.logger.warn(`Claude unavailable: ${(e as Error).message}`);
-        throw new ExtractionError('The AI service is busy. Please try again in a few minutes.');
-      }
-      if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) {
-        this.logger.error(`Claude rejected the API key: ${e.message}`);
-        throw new ExtractionError("The AI service isn't available right now");
-      }
-      if (e instanceof Anthropic.BadRequestError) {
-        // e.g. a PDF Claude can't open, or no API credit left; the log says which.
-        this.logger.error(`Claude rejected the request: ${e.message}`);
-        throw new ExtractionError("This resume couldn't be read");
-      }
+      const message = claudeErrorMessage(e, this.logger, "This resume couldn't be read");
+      if (message) throw new ExtractionError(message);
       throw e;
     }
 
