@@ -27,7 +27,8 @@ export function RequireAuth({
   const needsLogin = !signingOut && !auth.isLoading && !auth.error && !auth.isAuthenticated;
 
   useEffect(() => {
-    if (needsLogin) void auth.signinRedirect({ state: window.location.pathname });
+    // The query too, so a page that needs it (e.g. Gmail's return with its code) survives signing in.
+    if (needsLogin) void auth.signinRedirect({ state: `${window.location.pathname}${window.location.search}` });
   }, [needsLogin, auth]);
 
   if (signingOut || auth.isLoading || needsLogin) {
