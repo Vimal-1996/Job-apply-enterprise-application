@@ -53,7 +53,9 @@ export interface Suggestion {
   editedText: string | null;
 }
 
-export const TAILORING_LIMITS = { suggestions: 15, text: 1000, perDay: 20 };
+export const TAILORING_LIMITS = {
+  /** Tailored-resume scorings per user per day (each matches two resumes). */
+  scoresPerDay: 20, suggestions: 15, text: 1000, perDay: 20 };
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, TAILORING_LIMITS.text);
 

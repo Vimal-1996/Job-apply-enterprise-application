@@ -30,6 +30,13 @@ export class TailoringController {
     return this.tailoring.start(user.id, jobId(id));
   }
 
+  /** Starts matching the original and tailored resume side by side. Poll GET until score.status is 'ready' or 'failed'. */
+  @Post('score')
+  @HttpCode(202)
+  score(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.tailoring.score(user.id, jobId(id));
+  }
+
   /** Accepts, rejects or edits suggestions: `{ decisions: [{ id, decision, editedText? }] }`. */
   @Patch()
   decide(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {

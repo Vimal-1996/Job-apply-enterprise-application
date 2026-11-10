@@ -8,6 +8,7 @@ import { formatDateTime } from '../admin/format';
 import { POLL_MS } from './JobsPage';
 import { jobTitle } from './jobView';
 import { FormatSelect, ResumeFormat } from './ResumeFormat';
+import { ScoreCard } from './ScoreCard';
 import { acceptAllIds, counts, documentUrl, finalText, isWorkdayJob, shouldAutoStart, suggestionLabel, type FileFormat } from './tailorView';
 
 const message = (e: unknown, fallback: string) => (e instanceof ApiError || e instanceof Error ? e.message : fallback);
@@ -55,11 +56,12 @@ export function TailorResumePage() {
   }, [load]);
 
   const suggesting = draft?.status === 'suggesting';
+  const scoring = draft?.score.status === 'scoring';
   useEffect(() => {
-    if (!suggesting) return;
+    if (!suggesting && !scoring) return;
     const t = window.setInterval(() => void load(), POLL_MS);
     return () => window.clearInterval(t);
-  }, [suggesting, load]);
+  }, [suggesting, scoring, load]);
 
   const act = async (fn: () => Promise<void>, fallback: string) => {
     setBusy(true);
@@ -88,6 +90,8 @@ export function TailorResumePage() {
     autoStarted.current = true;
     void start();
   }, [job, draft, start]);
+
+  const scoreResume = () => act(async () => setDraft(await apiPost<DraftView>(`${base}/score`, token)), 'Could not start scoring.');
 
   const decide = (updates: Update[]) =>
     act(async () => setDraft(await apiPatch<DraftView>(base, token, { decisions: updates })), 'Could not save your choice.');
@@ -219,6 +223,8 @@ export function TailorResumePage() {
             )}
             <ResumeFormat workday={workday} onChange={setWorkdayChoice} checks={draft.checks} suggested={workdaySuggested} />
           </div>
+
+          <ScoreCard draft={draft} accepted={c.accepted} busy={busy} onScore={() => void scoreResume()} />
 
           {draft.suggestions.map((s) => (
             <SuggestionCard key={s.id} s={s} roles={draft.roles} busy={busy} onDecide={(u) => void decide([u])} />

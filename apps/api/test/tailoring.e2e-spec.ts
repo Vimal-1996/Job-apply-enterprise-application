@@ -62,7 +62,13 @@ const DESCRIPTION = 'Acme is hiring a Backend Engineer to build TypeScript and P
 
 describe('resume tailoring (e2e)', () => {
   let app: INestApplication;
-  const matcher: JobMatcher = { analyse: async () => ANALYSIS };
+  // Scores higher when the resume mentions PostgreSQL, like a real match would.
+  const matcher: JobMatcher = {
+    analyse: async ({ profile }) => {
+      const pg = profile.skills.includes('PostgreSQL');
+      return { ...ANALYSIS, match: { ...ANALYSIS.match, score: pg ? 82 : 70, summary: pg ? 'Covers the stack.' : 'Good.' } };
+    },
+  };
   const tailor: ResumeTailor = {
     suggest: async () => [
       { kind: 'add_skill', workIndex: null, bulletIndex: null, after: 'PostgreSQL', reason: 'The posting requires it.', source: 'resume', question: null },
@@ -164,5 +170,43 @@ describe('resume tailoring (e2e)', () => {
     const pdf = await as('jane-token').get('/profile/document?format=pdf').expect(200);
     expect(pdf.headers['content-type']).toContain('application/pdf');
     expect(pdf.headers['content-disposition']).toContain('filename="Jane Doe resume.pdf"');
+  });
+
+  it('scores the tailored resume against the original, side by side, and shows keyword coverage', async () => {
+    const job = await as('jane-token').post('/jobs', { description: DESCRIPTION.replace('Acme', 'Acme Two') }).expect(202);
+    await app.get(JobsService).whenIdle();
+    const base = `/jobs/${job.body.id}/resume-draft`;
+    await as('jane-token').post(`${base}/score`).expect(409); // no suggestions yet
+    await as('jane-token').post(base).expect(202);
+    await app.get(TailoringService).whenIdle();
+    let draft = (await as('jane-token').get(base).expect(200)).body;
+    expect(draft.score).toEqual({ status: 'none', result: null, error: null, scoredAt: null, outdated: false });
+    // Before accepting anything, the keywords are the original's.
+    expect(draft.keywords).toEqual({ total: 2, original: 1, tailored: 1, added: [], missing: ['PostgreSQL'] });
+    await as('jane-token').post(`${base}/score`).expect(409); // nothing accepted
+
+    const addSkill = draft.suggestions[0].id;
+    draft = (await as('jane-token').patch(base, { decisions: [{ id: addSkill, decision: 'accepted' }] }).expect(200)).body;
+    expect(draft.keywords).toEqual({ total: 2, original: 1, tailored: 2, added: ['PostgreSQL'], missing: [] });
+
+    await as('bob-token').post(`${base}/score`).expect(404);
+    expect((await as('jane-token').post(`${base}/score`).expect(202)).body.score.status).toBe('scoring');
+    await app.get(TailoringService).whenIdle();
+    draft = (await as('jane-token').get(base).expect(200)).body;
+    expect(draft.score).toMatchObject({
+      status: 'ready',
+      outdated: false,
+      result: { original: { score: 70, verdict: 'good', summary: 'Good.' }, tailored: { score: 82, summary: 'Covers the stack.' } },
+    });
+    expect(draft.score.scoredAt).not.toBeNull();
+
+    // Changing the accepted changes makes the score out of date (it stays visible).
+    draft = (await as('jane-token').patch(base, { decisions: [{ id: addSkill, decision: 'rejected' }] }).expect(200)).body;
+    expect(draft.score).toMatchObject({ status: 'ready', outdated: true });
+
+    // New suggestions start without a score.
+    await as('jane-token').post(base).expect(202);
+    await app.get(TailoringService).whenIdle();
+    expect((await as('jane-token').get(base).expect(200)).body.score.status).toBe('none');
   });
 });

@@ -8,10 +8,13 @@ import {
   Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { JobsService } from '../jobs/jobs.service';
 import { ProfileService } from '../profile/profile.service';
-import { DraftRow, DraftStatus, DraftStore } from './draft-store';
+import { MatchError } from '../jobs/job-matcher';
+import { JobMatch } from '../jobs/job.schema';
+import { DraftRow, DraftStatus, DraftStore, ScoredMatch, ScoreStatus, TailoredScore } from './draft-store';
+import { keywordCoverage, KeywordCoverage } from './keyword-coverage';
 import { RESUME_TAILOR, ResumeTailor, TailorError, TailorInput } from './resume-tailor';
 import { refreshFacts, resumeChecks, ResumeCheck, resumeFileName, ResumeFormat, ResumeLayout } from '../resume-doc/resume-docx';
 import { buildResumeFile } from '../resume-doc/resume-file';
@@ -35,6 +38,17 @@ export interface DraftView {
   /** What the resume is missing that Workday and other ATS ask for (fix on the Profile page). */
   checks: ResumeCheck[];
   aiEnabled: boolean;
+  /** Required skills the original and the tailored resume mention (null until there are suggestions, or if the job lists none). */
+  keywords: KeywordCoverage | null;
+  /** The original and tailored resume matched side by side, on request. */
+  score: {
+    status: 'none' | ScoreStatus;
+    result: TailoredScore | null;
+    error: string | null;
+    scoredAt: string | null;
+    /** The accepted changes differ from what was scored. */
+    outdated: boolean;
+  };
 }
 
 /**
@@ -130,6 +144,45 @@ export class TailoringService {
     return refreshFacts(applySuggestions(base, suggestions), current);
   }
 
+  /**
+   * Starts matching the original and the tailored resume against the job, side
+   * by side (the same way, at the same time, so the comparison is fair);
+   * returns at once. Poll `get` until score.status is 'ready' or 'failed'.
+   */
+  async score(userId: string, jobId: string): Promise<DraftView> {
+    if (!this.tailor) throw new ServiceUnavailableException("Scoring resumes with AI isn't set up on this server");
+    await this.jobs.get(userId, jobId);
+    const draft = await this.store.get(userId, jobId);
+    if (!draft?.baseProfile || !draft.suggestions) throw new ConflictException('Get suggestions for this job first');
+    if (!draft.suggestions.some((s) => s.decision === 'accepted')) throw new ConflictException('Accept at least one suggestion, then score your tailored resume');
+    if ((await this.store.runsLastDay(userId, 'score')) >= TAILORING_LIMITS.scoresPerDay) {
+      throw new HttpException({ statusCode: 429, message: `You can score up to ${TAILORING_LIMITS.scoresPerDay} tailored resumes a day. Please try again tomorrow.` }, 429);
+    }
+    const runId = randomUUID();
+    if (!(await this.store.startScore(userId, jobId, runId, new Date(Date.now() - TAILOR_TIMEOUT_MS)))) {
+      throw new ConflictException('This resume is already being scored');
+    }
+    const basis = scoreBasis(draft.suggestionsId, draft.suggestions);
+    const { profile: current } = await this.profiles.get(userId);
+    const original = refreshFacts(draft.baseProfile, current);
+    const tailored = refreshFacts(applySuggestions(draft.baseProfile, draft.suggestions), current);
+    const key = `score:${jobId}`;
+    const run = (async () => {
+      try {
+        const [a, b] = await Promise.all([this.jobs.scoreProfile(userId, jobId, original), this.jobs.scoreProfile(userId, jobId, tailored)]);
+        await this.store.finishScore(userId, jobId, runId, { original: scored(a), tailored: scored(b) }, basis);
+      } catch (e) {
+        const message = e instanceof MatchError ? e.message : 'Something went wrong scoring your resume. Please try again.';
+        if (!(e instanceof MatchError)) this.logger.error(`Scoring a tailored resume failed: ${(e as Error).stack ?? e}`);
+        await this.store.failScore(userId, jobId, runId, message).catch((err) => this.logger.error(`Couldn't record a failed scoring: ${err}`));
+      }
+    })().finally(() => {
+      if (this.running.get(key) === run) this.running.delete(key);
+    });
+    this.running.set(key, run);
+    return this.get(userId, jobId);
+  }
+
   /** Resolves when every run in this process has finished. For tests. */
   async whenIdle(): Promise<void> {
     await Promise.all(this.running.values());
@@ -137,8 +190,12 @@ export class TailoringService {
 
   private async view(userId: string, row: DraftRow | null): Promise<DraftView> {
     const aiEnabled = Boolean(this.tailor);
-    if (!row) return { status: 'none', suggestions: [], roles: [], error: null, suggestedAt: null, profileChanged: false, checks: [], aiEnabled };
+    const noScore = { status: 'none' as const, result: null, error: null, scoredAt: null, outdated: false };
+    if (!row) return { status: 'none', suggestions: [], roles: [], error: null, suggestedAt: null, profileChanged: false, checks: [], aiEnabled, keywords: null, score: noScore };
     const stale = row.status === 'suggesting' && Date.now() - row.updatedAt.getTime() > TAILOR_TIMEOUT_MS;
+    const scoreStuck = row.scoreStatus === 'scoring' && (!row.scoreStartedAt || Date.now() - row.scoreStartedAt.getTime() > TAILOR_TIMEOUT_MS);
+    const tailored = row.baseProfile ? await this.finalProfile(userId, row.baseProfile, row.suggestions ?? []) : null;
+    const required = (await this.jobs.get(userId, row.jobId)).details?.requiredSkills ?? [];
     let profileChanged = false;
     if (row.suggestedAt) {
       const p = await this.profiles.get(userId);
@@ -151,8 +208,28 @@ export class TailoringService {
       error: stale ? 'Making suggestions took too long. Please try again.' : row.error,
       suggestedAt: row.suggestedAt?.toISOString() ?? null,
       profileChanged,
-      checks: row.baseProfile ? resumeChecks(await this.finalProfile(userId, row.baseProfile, row.suggestions ?? [])) : [],
+      checks: tailored ? resumeChecks(tailored) : [],
       aiEnabled,
+      keywords: tailored && row.baseProfile && required.length ? keywordCoverage(required, row.baseProfile, tailored) : null,
+      score: row.scoreStatus
+        ? {
+            status: scoreStuck ? 'failed' : row.scoreStatus,
+            result: row.score,
+            error: scoreStuck ? 'Scoring took too long. Please try again.' : row.scoreError,
+            scoredAt: row.scoredAt?.toISOString() ?? null,
+            outdated: Boolean(row.score && row.scoreBasis !== scoreBasis(row.suggestionsId, row.suggestions ?? [])),
+          }
+        : noScore,
     };
   }
+}
+
+/** Identifies the accepted changes (and their wording), so a score can tell when it's out of date. */
+export function scoreBasis(suggestionsId: string | null, suggestions: Suggestion[]): string {
+  const accepted = suggestions.filter((s) => s.decision === 'accepted').map((s) => [s.id, s.editedText ?? null]);
+  return createHash('sha256').update(JSON.stringify([suggestionsId, accepted])).digest('base64url');
+}
+
+function scored(m: JobMatch): ScoredMatch {
+  return { score: m.score, verdict: m.verdict, summary: m.summary, gaps: m.gaps.slice(0, 6) };
 }

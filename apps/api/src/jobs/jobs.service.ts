@@ -180,6 +180,18 @@ export class JobsService {
     return this.get(userId, id);
   }
 
+  /**
+   * Matches a given profile (e.g. a tailored resume) against one of the user's
+   * jobs, with their current preferences. Nothing is stored. Throws MatchError
+   * with a message for the user when Claude can't do it.
+   */
+  async scoreProfile(userId: string, id: string, profile: CandidateProfile): Promise<JobMatch> {
+    const matcher = this.requireMatcher();
+    const job = await this.get(userId, id);
+    const preferences = await this.profiles.getPreferences(userId);
+    return (await matcher.analyse({ profile, preferences, description: job.description })).match;
+  }
+
   async delete(userId: string, id: string): Promise<void> {
     if (!(await this.store.delete(userId, id))) throw new NotFoundException('Job not found');
   }
