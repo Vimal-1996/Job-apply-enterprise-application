@@ -457,3 +457,11 @@ textarea.input { resize: vertical; line-height: 1.45; }
 .score-row { display: grid; gap: 4px; }
 .score-label { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .score-detail { font-size: 14px; margin: 0; }
+.gap-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.gap-item { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--warning, #d97706); border-radius: 8px; }
+.gap-item.gap-yes { border-left-color: var(--success, #16a34a); }
+.gap-item.gap-no { border-left-color: var(--border); opacity: .75; }
+.gap-form { display: grid; gap: 10px; }
+.gap-said { margin: 0; font-size: 14px; font-style: italic; }
+.gap-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.gap-lines li { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; }

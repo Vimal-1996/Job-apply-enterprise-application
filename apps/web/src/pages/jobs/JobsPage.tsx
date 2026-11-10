@@ -67,14 +67,13 @@ export function JobsPage() {
 
 function AddJobCard({ token, onAdded }: { token: string | undefined; onAdded: (j: JobSummary) => void }) {
   const navigate = useNavigate();
-  const [link, setLink] = useState('');
   const [description, setDescription] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const r = newJobRequest(link, description);
+    const r = newJobRequest(description);
     if ('error' in r) {
       setError(r.error);
       return;
@@ -83,7 +82,6 @@ function AddJobCard({ token, onAdded }: { token: string | undefined; onAdded: (j
     setError(null);
     try {
       const job = await apiPost<JobView>('/jobs', token, r.body);
-      setLink('');
       setDescription('');
       onAdded(job);
       navigate(`/jobs/${job.id}`);
@@ -97,17 +95,6 @@ function AddJobCard({ token, onAdded }: { token: string | undefined; onAdded: (j
   return (
     <form className="card profile-form" onSubmit={(e) => void submit(e)} noValidate>
       <h3 style={{ margin: 0 }}>Add a job</h3>
-      <label className="field">
-        Job link <span className="hint muted">Optional. A LinkedIn or Indeed link or job ID, or the company's job page.</span>
-        <input
-          className="input"
-          value={link}
-          onChange={(e) => setLink(e.target.value)}
-          placeholder="https://www.linkedin.com/jobs/view/…"
-          autoComplete="off"
-          maxLength={2000}
-        />
-      </label>
       <label className="field">
         Job description
         <span className="hint muted">

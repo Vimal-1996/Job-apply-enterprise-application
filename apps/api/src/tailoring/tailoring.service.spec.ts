@@ -9,8 +9,19 @@ import { JobsService } from '../jobs/jobs.service';
 import { CandidateProfile, EMPTY_PREFERENCES } from '../profile/profile.schema';
 import { ProfileService, ProfileView } from '../profile/profile.service';
 import { DraftStore } from './draft-store';
-import { profileForPrompt, ResumeTailor, TailorError, tailorMessage } from './resume-tailor';
-import { applySuggestions, parseDecisions, RawSuggestion, Suggestion, TAILORING_LIMITS, tidySuggestions } from './tailoring.schema';
+import { GapInput, gapMessage, profileForPrompt, ResumeTailor, TailorError, tailorMessage } from './resume-tailor';
+import {
+  applySuggestions,
+  GapWriting,
+  gapsFrom,
+  gapSuggestions,
+  parseDecisions,
+  parseGapAnswer,
+  RawSuggestion,
+  Suggestion,
+  TAILORING_LIMITS,
+  tidySuggestions,
+} from './tailoring.schema';
 import { TAILOR_TIMEOUT_MS, TailoringService } from './tailoring.service';
 
 afterAll(closeTestPools);
@@ -69,7 +80,7 @@ describe('tidySuggestions', () => {
         raw({ kind: 'add_skill', after: 'typescript' }), // already listed
         raw({ kind: 'add_skill', after: 'PostgreSQL' }),
         raw({ kind: 'headline', after: ' Backend  Engineer ' }), // same as now
-        raw({ kind: 'add_skill', after: 'Kubernetes', source: 'needs_confirmation', question: 'Have you used Kubernetes?' }),
+        raw({ kind: 'add_skill', after: 'Kubernetes', source: 'needs_confirmation', question: 'Have you used Kubernetes?' }), // asked as a gap instead
       ],
       ids,
     );
@@ -77,11 +88,8 @@ describe('tidySuggestions', () => {
       ['summary', 'Engineer who builds APIs.', 'Backend engineer with 6 years of TypeScript and PostgreSQL.'],
       ['rewrite_bullet', 'Ran AWS message queues', 'Ran AWS SQS message queues'],
       ['add_skill', null, 'PostgreSQL'],
-      ['add_skill', null, 'Kubernetes'],
     ]);
-    expect(out.every((s) => s.decision === 'pending' && s.editedText === null)).toBe(true);
-    expect(out[3]).toMatchObject({ source: 'needs_confirmation', question: 'Have you used Kubernetes?' });
-    expect(out[0].question).toBeNull();
+    expect(out.every((s) => s.decision === 'pending' && s.editedText === null && s.source === 'resume' && s.question === null)).toBe(true);
   });
 
   it('caps the number of suggestions', () => {
@@ -196,10 +204,21 @@ function fakeTailor() {
   let next: () => Promise<RawSuggestion[]> = async () => [
     raw({ kind: 'summary', after: 'Backend engineer focused on payments.' }),
     raw({ kind: 'add_skill', after: 'PostgreSQL' }),
-    raw({ kind: 'add_skill', after: 'Kubernetes', source: 'needs_confirmation', question: 'Have you used Kubernetes?' }),
+    raw({ kind: 'add_skill', after: 'Kubernetes' }),
   ];
-  const tailor: ResumeTailor = { suggest: async (input) => (calls.push(input), next()) };
-  return { tailor, calls, willFail: (e: Error) => (next = async () => Promise.reject(e)) };
+  const gapCalls: GapInput[] = [];
+  let gapResult: GapWriting = { bullets: ['Ran Kubernetes clusters for 12 services'], skills: ['Kubernetes', 'Helm'], problem: null };
+  const tailor: ResumeTailor = {
+    suggest: async (input) => (calls.push(input), next()),
+    writeGap: async (input) => (gapCalls.push(input), gapResult),
+  };
+  return {
+    tailor,
+    calls,
+    gapCalls,
+    willFail: (e: Error) => (next = async () => Promise.reject(e)),
+    gapWrites: (w: GapWriting) => (gapResult = w),
+  };
 }
 
 async function setup(opts: { ai?: boolean } = {}) {
@@ -221,7 +240,83 @@ async function setup(opts: { ai?: boolean } = {}) {
   return { pool, service, store, jobs, fake, state, addJob };
 }
 
+describe('gaps', () => {
+  it('lists the job gaps once each, capped', () => {
+    const gaps = gapsFrom(['Kubernetes not shown', ' kubernetes  NOT shown ', '', ...Array.from({ length: 20 }, (_, i) => `Gap ${i}`)], ids);
+    expect(gaps[0]).toMatchObject({ text: 'Kubernetes not shown', answer: 'pending', experience: null, workIndex: null });
+    expect(gaps).toHaveLength(TAILORING_LIMITS.gaps);
+  });
+
+  it('turns a write-up into accepted changes: bullets only with a role, no skills already listed', () => {
+    const gap = gapsFrom(['Kubernetes not shown'], ids)[0];
+    const w: GapWriting = { bullets: ['Ran Kubernetes clusters', ' ', 'Two', 'Three'], skills: ['Kubernetes', 'TypeScript', 'Helm', 'A', 'B'], problem: null };
+    const out = gapSuggestions(PROFILE, gap, 0, w, ids);
+    expect(out.map((x) => [x.kind, x.workIndex, x.after])).toEqual([
+      ['add_bullet', 0, 'Ran Kubernetes clusters'],
+      ['add_bullet', 0, 'Two'],
+      ['add_skill', null, 'Kubernetes'],
+      ['add_skill', null, 'Helm'],
+      ['add_skill', null, 'A'],
+    ]);
+    expect(out.every((x) => x.decision === 'accepted' && x.source === 'experience' && x.gapId === gap.id)).toBe(true);
+    expect(gapSuggestions(PROFILE, gap, null, w, ids).every((x) => x.kind === 'add_skill')).toBe(true);
+    expect(gapSuggestions(PROFILE, gap, 7, w, ids).every((x) => x.kind === 'add_skill')).toBe(true);
+  });
+
+  it('validates answers', () => {
+    expect(parseGapAnswer({ answer: 'no' })).toEqual({ answer: 'no' });
+    expect(parseGapAnswer({ answer: 'yes', experience: '  Ran our Kubernetes clusters at Globex for two years. ', workIndex: 0 })).toEqual({
+      answer: 'yes',
+      experience: 'Ran our Kubernetes clusters at Globex for two years.',
+      workIndex: 0,
+    });
+    expect(parseGapAnswer({ answer: 'yes', experience: 'yes', workIndex: 0 })).toHaveProperty('error');
+    expect(parseGapAnswer({ answer: 'yes', experience: 'x'.repeat(2000), workIndex: 0 })).toHaveProperty('error');
+    expect(parseGapAnswer({ answer: 'yes', experience: 'Ran clusters for two years', workIndex: -1 })).toHaveProperty('error');
+    expect(parseGapAnswer({ answer: 'maybe' })).toHaveProperty('error');
+  });
+
+  it("puts the gap, the role and the user's words in the prompt", () => {
+    const gap = gapsFrom(['Kubernetes not shown'], ids)[0];
+    const m = gapMessage({ profile: PROFILE, job: ANALYSIS.job, gap, experience: 'Ran clusters', workIndex: 0 });
+    expect(m).toContain('<gap>Kubernetes not shown</gap>');
+    expect(m).toContain(`<role>${PROFILE.workHistory[0].title} at ${PROFILE.workHistory[0].company}`);
+    expect(m).toContain('<my_experience>\nRan clusters\n</my_experience>');
+  });
+});
+
 describe('TailoringService', () => {
+  it('asks about the job gaps; "yes" writes the experience up as accepted changes, "no" removes them', async () => {
+    const { service, fake, addJob } = await setup();
+    const jobId = await addJob();
+    await service.start('u1', jobId);
+    await service.whenIdle();
+    const view = await service.get('u1', jobId);
+    expect(view.gaps).toEqual([expect.objectContaining({ text: 'Kubernetes not shown', answer: 'pending' })]);
+    const gapId = view.gaps[0].id;
+
+    await expect(service.answerGap('u1', jobId, 'nope', { answer: 'no' })).rejects.toThrow('Unknown gap');
+    await expect(service.answerGap('u1', jobId, gapId, { answer: 'yes', experience: 'Ran clusters at Globex', workIndex: 9 })).rejects.toThrow('Pick one of your roles');
+
+    const yes = await service.answerGap('u1', jobId, gapId, { answer: 'yes', experience: 'Ran our Kubernetes clusters at Globex', workIndex: 0 });
+    expect(fake.gapCalls[0]).toMatchObject({ experience: 'Ran our Kubernetes clusters at Globex', workIndex: 0, gap: { text: 'Kubernetes not shown' } });
+    expect(yes.gaps[0]).toMatchObject({ answer: 'yes', experience: 'Ran our Kubernetes clusters at Globex', workIndex: 0 });
+    // Kubernetes is already suggested from the resume but not accepted, so the gap adds it.
+    const fromGap = yes.suggestions.filter((x) => x.gapId === gapId);
+    expect(fromGap.map((x) => x.after)).toEqual(['Ran Kubernetes clusters for 12 services', 'Kubernetes', 'Helm']);
+    const { bytes } = await service.document('u1', jobId);
+    expect(await docText(bytes)).toContain('Ran Kubernetes clusters for 12 services');
+
+    // Answering again replaces what it wrote; "no" takes it all out.
+    fake.gapWrites({ bullets: [], skills: [], problem: 'Say where you used Kubernetes.' });
+    await expect(service.answerGap('u1', jobId, gapId, { answer: 'yes', experience: 'I want to learn it soon', workIndex: 0 })).rejects.toThrow(
+      'Say where you used Kubernetes.',
+    );
+    const no = await service.answerGap('u1', jobId, gapId, { answer: 'no' });
+    expect(no.gaps[0]).toMatchObject({ answer: 'no', experience: null });
+    expect(no.suggestions.some((x) => x.gapId)).toBe(false);
+  });
+
   it('suggests changes, saves decisions, and builds the resume from accepted ones only', async () => {
     const { service, fake, addJob } = await setup();
     const jobId = await addJob();
@@ -372,3 +467,7 @@ describe('TailoringService', () => {
     expect(await store.get('u1', jobId)).toBeNull();
   });
 });
+
+async function docText(bytes: Buffer): Promise<string> {
+  return (await (await JSZip.loadAsync(bytes)).file('word/document.xml')!.async('string')).replace(/<[^>]+>/g, '');
+}

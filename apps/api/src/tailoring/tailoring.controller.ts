@@ -1,9 +1,9 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Param, Patch, Post, Query, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query, StreamableFile } from '@nestjs/common';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators';
 import { CONTENT_TYPES, parseResumeQuery } from '../resume-doc/resume-file';
 import { attachmentDisposition } from '../resumes/resume-files';
-import { parseDecisions } from './tailoring.schema';
+import { parseDecisions, parseGapAnswer } from './tailoring.schema';
 import { TailoringService } from './tailoring.service';
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -43,6 +43,18 @@ export class TailoringController {
     const updates = parseDecisions(body);
     if ('error' in updates) throw new BadRequestException(updates.error);
     return this.tailoring.decide(user.id, jobId(id), updates);
+  }
+
+  /**
+   * Answers one gap: `{ answer: 'no' | 'pending' }`, or `{ answer: 'yes', experience, workIndex }`
+   * to have Claude write the experience up as resume lines (waits a few seconds for it).
+   */
+  @Put('gaps/:gapId')
+  answerGap(@CurrentUser() user: AuthUser, @Param('id') id: string, @Param('gapId') gapId: string, @Body() body: unknown) {
+    const req = parseGapAnswer(body);
+    if ('error' in req) throw new BadRequestException(req.error);
+    if (!/^[\w-]{1,64}$/.test(gapId)) throw new BadRequestException('Invalid gap id');
+    return this.tailoring.answerGap(user.id, jobId(id), gapId, req);
   }
 
   /**

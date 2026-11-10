@@ -1,10 +1,10 @@
 import type { Pool } from 'pg';
 import { CandidateProfile } from '../profile/profile.schema';
-import { Suggestion } from './tailoring.schema';
+import { Gap, Suggestion } from './tailoring.schema';
 
 export type DraftStatus = 'suggesting' | 'ready' | 'failed';
 export type ScoreStatus = 'scoring' | 'ready' | 'failed';
-export type RunKind = 'suggest' | 'score';
+export type RunKind = 'suggest' | 'score' | 'gap';
 
 /** One resume's match against the job: the score, its verdict and why. */
 export interface ScoredMatch {
@@ -28,6 +28,8 @@ export interface DraftRow {
   baseProfile: CandidateProfile | null;
   suggestions: Suggestion[] | null;
   suggestionsId: string | null;
+  /** The job's gaps and the user's answers (null on drafts made before gaps). */
+  gaps: Gap[] | null;
   error: string | null;
   suggestedAt: Date | null;
   updatedAt: Date;
@@ -42,7 +44,7 @@ export interface DraftRow {
 }
 
 const COLUMNS =
-  'job_id, user_id, status, run_id, base_profile, suggestions, suggestions_id, error, suggested_at, updated_at, score_status, score_run_id, score, score_error, score_basis, score_started_at, scored_at';
+  'job_id, user_id, status, run_id, base_profile, suggestions, suggestions_id, error, suggested_at, updated_at, score_status, score_run_id, score, score_error, score_basis, score_started_at, scored_at, gaps';
 const json = (v: unknown) => (typeof v === 'string' ? JSON.parse(v) : (v ?? null));
 
 function toRow(r: Record<string, any>): DraftRow {
@@ -54,6 +56,7 @@ function toRow(r: Record<string, any>): DraftRow {
     baseProfile: json(r.base_profile),
     suggestions: json(r.suggestions),
     suggestionsId: r.suggestions_id,
+    gaps: json(r.gaps),
     error: r.error,
     suggestedAt: r.suggested_at ? new Date(r.suggested_at) : null,
     updatedAt: new Date(r.updated_at),
@@ -140,12 +143,12 @@ export class DraftStore {
   }
 
   /** Stores finished suggestions. False if a newer run replaced this one, or the job was deleted. */
-  async finish(userId: string, jobId: string, runId: string, baseProfile: CandidateProfile, suggestions: Suggestion[]): Promise<boolean> {
+  async finish(userId: string, jobId: string, runId: string, baseProfile: CandidateProfile, suggestions: Suggestion[], gaps: Gap[]): Promise<boolean> {
     const { rowCount } = await this.pool.query(
-      `UPDATE resume_draft SET status = 'ready', base_profile = $4, suggestions = $5, suggestions_id = $3, error = NULL, suggested_at = now(), run_id = NULL, updated_at = now(),
+      `UPDATE resume_draft SET status = 'ready', base_profile = $4, suggestions = $5, suggestions_id = $3, gaps = $6, error = NULL, suggested_at = now(), run_id = NULL, updated_at = now(),
          score_status = NULL, score = NULL, score_error = NULL, score_basis = NULL, scored_at = NULL
         WHERE user_id = $1 AND job_id = $2 AND run_id = $3`,
-      [userId, jobId, runId, JSON.stringify(baseProfile), JSON.stringify(suggestions)],
+      [userId, jobId, runId, JSON.stringify(baseProfile), JSON.stringify(suggestions), JSON.stringify(gaps)],
     );
     return rowCount === 1;
   }
@@ -169,5 +172,19 @@ export class DraftStore {
       [userId, jobId, suggestionsId, JSON.stringify(suggestions)],
     );
     return rowCount === 1;
+  }
+
+  /** Saves gap answers and the suggestions together, against the current set only. False if it was replaced. */
+  async saveGaps(userId: string, jobId: string, suggestionsId: string, gaps: Gap[], suggestions: Suggestion[]): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE resume_draft SET gaps = $4, suggestions = $5, updated_at = now() WHERE user_id = $1 AND job_id = $2 AND suggestions_id = $3`,
+      [userId, jobId, suggestionsId, JSON.stringify(gaps), JSON.stringify(suggestions)],
+    );
+    return rowCount === 1;
+  }
+
+  /** Counts a Claude call of this kind towards the user's daily cap. */
+  async recordRun(userId: string, kind: RunKind): Promise<void> {
+    await this.pool.query('INSERT INTO tailoring_run (user_id, kind) VALUES ($1, $2)', [userId, kind]);
   }
 }

@@ -27,13 +27,12 @@ export function jobTitle(j: Pick<JobSummary, 'title' | 'company' | 'matchStatus'
 }
 
 /** Checks the add-a-job form; returns the request body or a message for the user. */
-export function newJobRequest(link: string, description: string): { body: { link?: string; description: string } } | { error: string } {
+export function newJobRequest(description: string): { body: { description: string } } | { error: string } {
   const d = description.trim();
-  const l = link.trim();
   if (!d) return { error: 'Paste the job description.' };
   if (d.length < DESCRIPTION_MIN) return { error: 'Paste the full job description: this is too short to judge the job by.' };
   if (d.length > DESCRIPTION_MAX) return { error: `The job description is too long (over ${DESCRIPTION_MAX.toLocaleString('en')} characters).` };
-  return { body: l ? { link: l, description: d } : { description: d } };
+  return { body: { description: d } };
 }
 
 /** Best matches first; jobs still being matched at the top, failed ones at the bottom; newest first within a group. */
