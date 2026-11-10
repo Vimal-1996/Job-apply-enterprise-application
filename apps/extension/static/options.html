@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Job Apply settings</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <main class="stack" style="max-width: 560px">
+      <h1>Job Apply settings</h1>
+      <p class="muted">Which Job Apply environment the extension uses. The defaults are for local development.</p>
+      <form id="form" class="stack">
+        <label class="field">API address<input id="apiUrl" class="input" autocomplete="off" /><span class="muted small">Local: http://localhost:3000. Production: https://&lt;site&gt;.cloudfront.net/api</span></label>
+        <label class="field">Sign-in domain<input id="cognitoDomain" class="input" autocomplete="off" /><span class="muted small">The Cognito domain, as in the web app's VITE_COGNITO_DOMAIN.</span></label>
+        <label class="field">Client ID<input id="clientId" class="input" autocomplete="off" /><span class="muted small">The web app's Cognito client ID (VITE_COGNITO_CLIENT_ID).</span></label>
+        <div class="row">
+          <button class="btn btn-primary" type="submit">Save</button>
+          <button class="btn" type="button" id="reset">Reset to local defaults</button>
+          <span id="status" role="status"></span>
+        </div>
+      </form>
+      <p class="muted small">This extension signs in at <code id="redirect"></code>, which must be an allowed callback URL on that client.</p>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
