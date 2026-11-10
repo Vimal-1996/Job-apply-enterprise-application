@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from '../../api/client';
-import type { ApplicationStatus, JobDetails, JobMatch, JobView } from '../../api/types';
+import type { JobDetails, JobMatch, JobView } from '../../api/types';
 import { Badge, Spinner } from '../../components/ui';
 import { formatDateTime } from '../admin/format';
-import { STATUSES, statusInfo } from './applicationView';
+import { statusInfo } from './applicationView';
 import { MatchBadge, POLL_MS } from './JobsPage';
 import { jobTitle, safeUrl, sourceLabel } from './jobView';
 
@@ -186,13 +186,13 @@ export function JobDetailPage() {
   );
 }
 
-/** Where the user is with this job: stage, private notes and the timeline of stage changes. */
+/** Where the user is with this job: its stage (changed on the Applications board), private notes and the timeline. */
 function ApplicationCard({ job, token, onSaved }: { job: JobView; token: string | undefined; onSaved: (j: JobView) => void }) {
   const [notes, setNotes] = useState(job.notes ?? '');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const save = async (update: { status?: ApplicationStatus; notes?: string | null }, done: string) => {
+  const save = async (update: { notes: string | null }, done: string) => {
     setBusy(true);
     setNotice(null);
     try {
@@ -218,25 +218,9 @@ function ApplicationCard({ job, token, onSaved }: { job: JobView; token: string 
           {current.label}
         </Badge>
         <span className="spacer" />
-        <label className="row" style={{ gap: 8 }}>
-          <span className="muted">Stage</span>
-          <select
-            className="input"
-            style={{ width: 'auto' }}
-            value={job.applicationStatus}
-            disabled={busy}
-            onChange={(e) => {
-              const status = e.target.value as ApplicationStatus;
-              void save({ status }, `Moved to ${statusInfo(status).label}.`);
-            }}
-          >
-            {STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Link to="/applications" className="muted">
+          Change the stage on the Applications board →
+        </Link>
       </div>
 
       <ol className="muted" style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 2 }} aria-label="Timeline">

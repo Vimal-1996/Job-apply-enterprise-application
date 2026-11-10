@@ -23,6 +23,21 @@ export function groupByStatus<T extends Pick<JobSummary, 'applicationStatus' | '
   }));
 }
 
+/**
+ * The jobs with one moved to another stage, as shown straight away while the
+ * change saves. Unchanged (same array) if the job isn't there or is already in that stage.
+ */
+export function moveJob<T extends Pick<JobSummary, 'id' | 'applicationStatus' | 'statusChangedAt'>>(
+  jobs: T[],
+  id: string,
+  status: ApplicationStatus,
+  now: string,
+): T[] {
+  const job = jobs.find((j) => j.id === id);
+  if (!job || job.applicationStatus === status) return jobs;
+  return jobs.map((j) => (j.id === id ? { ...j, applicationStatus: status, statusChangedAt: now } : j));
+}
+
 /** Headline numbers: everything past "saved" counts as applied. */
 export function pipelineCounts(jobs: Pick<JobSummary, 'applicationStatus'>[]) {
   const n = (s: ApplicationStatus) => jobs.filter((j) => j.applicationStatus === s).length;

@@ -409,3 +409,31 @@ textarea.input { resize: vertical; line-height: 1.45; }
 .salary-row .input { flex: 1 1 auto; min-width: 0; }
 .salary-row .input.currency { flex: 0 0 76px; text-transform: uppercase; }
 .form-actions { gap: 8px; }
+
+/* ---------- applications board ---------- */
+.board {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(230px, 1fr); gap: 12px;
+  overflow-x: auto; padding-bottom: 8px; align-items: start;
+}
+.board-col {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px; display: grid; gap: 10px; align-content: start; min-height: 180px; transition: border-color .15s, background .15s;
+}
+.board-col.closed { opacity: .85; }
+.board-col.over { border-color: var(--primary); background: var(--primary-soft); }
+.board-col-head h3 { font-size: 14px; }
+.board-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.board-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px;
+  display: grid; gap: 8px; cursor: grab; touch-action: manipulation; box-shadow: var(--shadow);
+}
+.board-card:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.board-card:active { cursor: grabbing; }
+.board-card-body { display: grid; gap: 4px; justify-items: start; min-width: 0; }
+.board-card-body.lifted {
+  background: var(--surface); border: 1px solid var(--primary); border-radius: 10px; padding: 10px;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 18%); cursor: grabbing; width: 230px;
+}
+.board-title { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.board-move .input { min-height: 30px; padding: 4px 8px; font-size: 13px; }
+.board-empty { font-size: 13px; text-align: center; padding: 12px 0; border: 1px dashed var(--border); border-radius: 10px; }
