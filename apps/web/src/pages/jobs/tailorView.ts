@@ -66,3 +66,11 @@ export function documentUrl(path: string, opts: { format: FileFormat; workday?: 
 /** Suggestions start on their own when the page opens, unless they exist already or can't be made yet. */
 export const shouldAutoStart = (draft: Pick<DraftView, 'status' | 'aiEnabled'>, job: { details: unknown }) =>
   draft.status === 'none' && draft.aiEnabled && Boolean(job.details);
+
+/** "+12", "0", "−5", with a tone: better, the same, or worse. */
+export function scoreDelta(before: number, after: number): { text: string; tone: 'success' | 'neutral' | 'danger' } {
+  const d = after - before;
+  if (d > 0) return { text: `+${d}`, tone: 'success' };
+  if (d < 0) return { text: `−${-d}`, tone: 'danger' };
+  return { text: '±0', tone: 'neutral' };
+}

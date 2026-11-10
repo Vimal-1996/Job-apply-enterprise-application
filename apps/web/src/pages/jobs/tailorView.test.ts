@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Suggestion } from '../../api/types';
-import { acceptAllIds, counts, documentUrl, finalText, isWorkdayJob, shouldAutoStart, suggestionLabel } from './tailorView';
+import { acceptAllIds, counts, documentUrl, finalText, isWorkdayJob, scoreDelta, shouldAutoStart, suggestionLabel } from './tailorView';
 
 const s = (over: Partial<Suggestion>): Suggestion => ({
   id: 'a',
@@ -67,5 +67,13 @@ describe('shouldAutoStart', () => {
     expect(shouldAutoStart({ ...draft, aiEnabled: false }, { details: {} })).toBe(false);
     expect(shouldAutoStart({ ...draft, status: 'ready' }, { details: {} })).toBe(false);
     expect(shouldAutoStart({ ...draft, status: 'failed' }, { details: {} })).toBe(false);
+  });
+});
+
+describe('scoreDelta', () => {
+  it('shows the change with a tone', () => {
+    expect(scoreDelta(70, 82)).toEqual({ text: '+12', tone: 'success' });
+    expect(scoreDelta(70, 70)).toEqual({ text: '±0', tone: 'neutral' });
+    expect(scoreDelta(70, 65)).toEqual({ text: '−5', tone: 'danger' });
   });
 });

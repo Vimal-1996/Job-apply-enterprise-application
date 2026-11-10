@@ -447,3 +447,9 @@ textarea.input { resize: vertical; line-height: 1.45; }
 .inbox-body pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 14px; }
 .inbox-day { display: grid; gap: 8px; margin-bottom: 14px; }
 .inbox-day-head { margin: 4px 0 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+
+/* Tailored resume vs original. */
+.score-card { gap: 14px; }
+.score-row { display: grid; gap: 4px; }
+.score-label { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.score-detail { font-size: 14px; margin: 0; }

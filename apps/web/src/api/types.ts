@@ -190,6 +190,23 @@ export interface DraftView {
   profileChanged: boolean;
   checks: ResumeCheck[];
   aiEnabled: boolean;
+  /** Required skills the original and tailored resume mention. */
+  keywords: { total: number; original: number; tailored: number; added: string[]; missing: string[] } | null;
+  /** The original and tailored resume matched side by side, on request. */
+  score: {
+    status: 'none' | 'scoring' | 'ready' | 'failed';
+    result: { original: ScoredMatch; tailored: ScoredMatch } | null;
+    error: string | null;
+    scoredAt: string | null;
+    outdated: boolean;
+  };
+}
+
+export interface ScoredMatch {
+  score: number;
+  verdict: MatchVerdict;
+  summary: string;
+  gaps: string[];
 }
 
 export type EmailCategory =
