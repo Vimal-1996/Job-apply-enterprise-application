@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from 'react-oidc-context';
-import { Link } from 'react-router-dom';
 import { ApiError, apiDownload, apiGet, apiPost, apiPut } from '../../api/client';
 import type { CandidateProfile, JobPreferences, ProfileView, WorkMode } from '../../api/types';
 import { Badge, Spinner } from '../../components/ui';
 import { formatDateTime } from '../admin/format';
 import { FormatSelect } from '../jobs/ResumeFormat';
+import { ResumeCard } from '../resume/ResumeCard';
 import { documentUrl, type FileFormat } from '../jobs/tailorView';
 import {
   EMPTY_EDUCATION,
@@ -25,7 +25,11 @@ const message = (e: unknown, fallback: string) => (e instanceof ApiError || e in
 /** How often to check while Claude reads the resume. */
 const POLL_MS = 3000;
 
-/** The candidate profile read from the user's resume, which they can correct, plus their job preferences. */
+/**
+ * The user's resume and everything read from it in one place: the resume file
+ * (upload, versions), the profile Claude reads from it (which they can correct),
+ * a clean download, and their job preferences.
+ */
 export function ProfilePage() {
   const token = useAuth().user?.access_token;
   const [view, setView] = useState<ProfileView | null>(null);
@@ -90,6 +94,12 @@ export function ProfilePage() {
     }
   };
 
+  /** A new or different current resume is read automatically: show that it's being read. */
+  const resumeChanged = () => {
+    setDraft(null);
+    void load();
+  };
+
   if (loadError) return <div className="banner">⚠️ Could not load your profile. Check that the API is running, then refresh.</div>;
   if (!view) {
     return (
@@ -106,8 +116,10 @@ export function ProfilePage() {
     <>
       <header className="page-head">
         <h1>Profile</h1>
-        <p>What we read from your resume, used to match you with jobs and fill in applications. Check it and correct anything that's wrong.</p>
+        <p>Your resume, and what we read from it to match you with jobs and fill in applications. Check it and correct anything that's wrong.</p>
       </header>
+
+      <ResumeCard token={token} onUploaded={resumeChanged} />
 
       <div className="card">
         <div className="row">
@@ -262,8 +274,7 @@ function NoProfile(props: { aiEnabled: boolean; busy: boolean; onRead: () => voi
       <p style={{ margin: 0 }}>
         {props.aiEnabled ? (
           <>
-            <Link to="/resume">Upload your resume</Link> and we'll read it into your profile automatically. Already uploaded one? Read
-            it now.
+            Upload your resume above and we'll read it into your profile automatically. Already uploaded one? Read it now.
           </>
         ) : (
           "Reading resumes with AI isn't set up yet, but you can fill in your profile yourself."

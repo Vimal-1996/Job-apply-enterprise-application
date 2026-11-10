@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
-import { useAuth } from 'react-oidc-context';
 import { ApiError, apiDelete, apiGet, apiPost } from '../../api/client';
 import type { Resume } from '../../api/types';
 import { Badge, Spinner } from '../../components/ui';
@@ -11,10 +10,12 @@ type Notice = { ok: boolean; text: string } | null;
 
 const message = (e: unknown, fallback: string) => (e instanceof ApiError || e instanceof Error ? e.message : fallback);
 
-/** The signed-in user's resume: upload, replace, download, earlier versions. */
-export function ResumePage() {
-  const auth = useAuth();
-  const token = auth.user?.access_token;
+/**
+ * The user's resume file, at the top of the Profile page: upload (or drop) a
+ * new version, download, switch to or delete earlier versions. A new upload is
+ * read into the profile automatically; `onUploaded` lets the page show that.
+ */
+export function ResumeCard({ token, onUploaded }: { token: string | undefined; onUploaded: () => void }) {
   const [resumes, setResumes] = useState<Resume[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
@@ -50,6 +51,7 @@ export function ResumePage() {
       const r = await uploadResume(file, token, setProgress);
       setNotice({ ok: true, text: `${r.fileName} is now your current resume.` });
       await load();
+      onUploaded();
     } catch (e) {
       setNotice({ ok: false, text: message(e, 'Upload failed. Please try again.') });
     } finally {
@@ -65,6 +67,7 @@ export function ResumePage() {
       await fn();
       setNotice({ ok: true, text: done });
       await load();
+      onUploaded();
     } catch (e) {
       setNotice({ ok: false, text: message(e, 'Something went wrong. Please try again.') });
     } finally {
@@ -122,90 +125,99 @@ export function ResumePage() {
       </div>
     );
 
-  return (
-    <>
-      <header className="page-head">
-        <h1>Resume</h1>
-        <p>Keep your latest resume here. Only you can see it. PDF or Word (.docx), up to 5 MB; your last 5 versions are kept.</p>
-      </header>
+  const dropHandlers = {
+    onDragOver: (e: DragEvent) => {
+      e.preventDefault();
+      setDragging(true);
+    },
+    onDragLeave: () => setDragging(false),
+    onDrop,
+  };
 
-      <div
-        className={`card dropzone ${dragging ? 'dragging' : ''}`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-      >
-        {uploading ? (
-          <div className="upload-progress" role="status" aria-live="polite">
-            <span>Uploading… {Math.round((progress ?? 0) * 100)}%</span>
-            <progress max={1} value={progress ?? 0} />
-          </div>
-        ) : (
-          <>
-            <span className="dropzone-icon" aria-hidden>
-              📄
-            </span>
-            <strong>{current ? 'Upload a new version' : 'Upload your resume'}</strong>
-            <span className="muted">Drag a file here, or</span>
-            <label className="btn btn-primary">
-              Choose a file
-              <input
-                id="resume-file"
-                ref={inputRef}
-                type="file"
-                accept={ACCEPT}
-                className="visually-hidden"
-                onChange={(e) => void upload(e.target.files?.[0])}
-              />
-            </label>
-          </>
-        )}
+  const chooseFile = (label: string, primary: boolean) => (
+    <label className={`btn ${primary ? 'btn-primary' : 'btn-ghost'}`}>
+      {label}
+      <input id="resume-file" ref={inputRef} type="file" accept={ACCEPT} className="visually-hidden" onChange={(e) => void upload(e.target.files?.[0])} />
+    </label>
+  );
+
+  const progressBar = (
+    <div className="upload-progress" role="status" aria-live="polite">
+      <span>Uploading… {Math.round((progress ?? 0) * 100)}%</span>
+      <progress max={1} value={progress ?? 0} />
+    </div>
+  );
+
+  const noticeLine = notice && (
+    <p role={notice.ok ? 'status' : 'alert'} className={notice.ok ? 'notice ok' : 'notice error'}>
+      {notice.text}
+    </p>
+  );
+
+  if (loadError) return <div className="banner">⚠️ Could not load your resume. Check that the API is running, then refresh.</div>;
+  if (resumes === null)
+    return (
+      <div className="card center" style={{ minHeight: 100 }}>
+        <Spinner />
       </div>
+    );
 
-      {notice && (
-        <p role={notice.ok ? 'status' : 'alert'} className={notice.ok ? 'notice ok' : 'notice error'}>
-          {notice.text}
-        </p>
-      )}
-
-      {loadError ? (
-        <div className="banner">⚠️ Could not load your resumes. Check that the API is running, then refresh.</div>
-      ) : resumes === null ? (
-        <div className="center" style={{ minHeight: 120 }}>
-          <Spinner />
-        </div>
-      ) : current ? (
-        <div className="card">
-          <div className="row">
-            <h3>Current resume</h3>
-            <Badge tone="success" dot>
-              Current
-            </Badge>
-          </div>
-          <ResumeLine r={current} />
-          {rowActions(current)}
-
-          {earlier.length > 0 && (
-            <div className="resume-earlier">
-              <h4>Earlier versions</h4>
-              <ul>
-                {earlier.map((r) => (
-                  <li key={r.id}>
-                    <ResumeLine r={r} />
-                    {rowActions(r)}
-                  </li>
-                ))}
-              </ul>
-            </div>
+  // No resume yet: a big drop area.
+  if (!current)
+    return (
+      <>
+        <div className={`card dropzone ${dragging ? 'dragging' : ''}`} {...dropHandlers}>
+          {uploading ? (
+            progressBar
+          ) : (
+            <>
+              <span className="dropzone-icon" aria-hidden>
+                📄
+              </span>
+              <strong>Upload your resume</strong>
+              <span className="muted">We'll read it into your profile below. PDF or Word (.docx), up to 5 MB. Drag a file here, or</span>
+              {chooseFile('Choose a file', true)}
+            </>
           )}
         </div>
-      ) : (
-        <p className="muted">You haven't uploaded a resume yet.</p>
+        {noticeLine}
+      </>
+    );
+
+  // A resume: the file, its actions, and the whole card takes a dropped new version.
+  return (
+    <div className={`card resume-card ${dragging ? 'dragging' : ''}`} {...dropHandlers}>
+      <div className="row">
+        <h3>Your resume</h3>
+        <Badge tone="success" dot>
+          Current
+        </Badge>
+        <span className="spacer" />
+        {!uploading && chooseFile('Upload a new version', false)}
+      </div>
+      {uploading ? progressBar : <ResumeLine r={current} />}
+      {rowActions(current)}
+      {noticeLine}
+
+      {earlier.length > 0 && (
+        <details className="resume-earlier">
+          <summary>
+            Earlier versions ({earlier.length})
+          </summary>
+          <ul>
+            {earlier.map((r) => (
+              <li key={r.id}>
+                <ResumeLine r={r} />
+                {rowActions(r)}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
-    </>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+        Only you can see it. Drop a file on this card to replace it; your last 5 versions are kept.
+      </p>
+    </div>
   );
 }
 

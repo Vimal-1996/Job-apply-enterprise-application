@@ -19,7 +19,6 @@ import { TailorResumePage } from './pages/jobs/TailorResumePage';
 import { GmailCallbackPage } from './pages/inbox/GmailCallbackPage';
 import { InboxPage } from './pages/inbox/InboxPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
-import { ResumePage } from './pages/resume/ResumePage';
 
 // The admin console is a separate bundle: normal users never download its code.
 const admin = () => import('./pages/admin');
@@ -50,7 +49,6 @@ function Shell() {
           <NavLink to="/" end>
             Dashboard
           </NavLink>
-          {isJobSeeker && <NavLink to="/resume">Resume</NavLink>}
           {isJobSeeker && <NavLink to="/profile">Profile</NavLink>}
           {isJobSeeker && <NavLink to="/jobs">Jobs</NavLink>}
           {isJobSeeker && <NavLink to="/applications">Applications</NavLink>}
@@ -114,7 +112,7 @@ export function App() {
         }
       >
         <Route path="/account" element={<Account />} />
-        <Route path="/resume" element={<ResumePage />} />
+        <Route path="/resume" element={<Navigate to="/profile" replace />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/jobs" element={<JobsPage />} />
         <Route path="/applications" element={<ApplicationsPage />} />
