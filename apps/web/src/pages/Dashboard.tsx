@@ -50,7 +50,7 @@ export function Dashboard() {
   ];
   const STEPS = [
     { label: 'Create your account', done: true },
-    { label: 'Upload your resume', done: hasResume === true, to: '/resume' },
+    { label: 'Upload your resume', done: hasResume === true, to: '/profile' },
     { label: 'Add a job and see your match', done: (jobs?.length ?? 0) > 0, to: '/jobs' },
     { label: 'Mark a job as applied', done: (c?.applied ?? 0) > 0, to: '/applications' },
   ];
