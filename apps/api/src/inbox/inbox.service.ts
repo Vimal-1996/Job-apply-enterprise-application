@@ -3,10 +3,11 @@ import { randomUUID } from 'crypto';
 import { ApplicationStatus } from '../jobs/job-store';
 import { JobsService, JobSummary } from '../jobs/jobs.service';
 import { ClassifyError, ClassifyJob, EMAIL_CLASSIFIER, EmailClassifier } from './email-classifier';
-import { EmailCategory, EmailVerdict, statusForCategory, worthSuggesting } from './email.schema';
+import { EmailCategory, EmailVerdict, isShown, statusForCategory, worthSuggesting } from './email.schema';
 import { GMAIL_API, GMAIL_SCOPES, GmailApi, GmailAuthError, jobEmailQuery, pkcePair } from './gmail-api';
 import { EmailMessage, gmailThreadUrl, parseMessage } from './gmail-message';
 import { ConnectionRow, ConnectionStatus, EmailRow, InboxStore, LinkSource, SyncStatus } from './inbox-store';
+import { gaps, mergeRanges, TimeRange, toStored } from './read-ranges';
 import { openState, sealState, STATE_TTL_MS, TokenCrypto } from './token-crypto';
 
 export const INBOX_STORE = Symbol('INBOX_STORE');
@@ -16,19 +17,21 @@ export const TOKEN_CRYPTO = Symbol('TOKEN_CRYPTO');
 export const SYNC_TIMEOUT_MS = 5 * 60_000;
 
 export const INBOX_LIMITS = {
-  /** How far back the first sync looks. */
-  firstSyncDays: 60,
-  /** Emails read per sync: the first sync, and later ones. */
-  firstSyncMax: 200,
-  laterSyncMax: 100,
+  /** How far back "check for new emails" looks (only the parts not read before are read). */
+  defaultDays: 60,
+  /** How far back a chosen date range can go. */
+  maxDaysBack: 730,
+  /** Emails read per sync; a bigger range is finished by syncing again. */
+  perSync: 200,
   /** Emails sent to Claude per user per day. */
   perDay: 400,
   /** Emails per Claude request. */
   batch: 8,
 };
 
-/** Later syncs look back a day before the last one, so mail that arrived late isn't missed (known emails are skipped). */
-const OVERLAP_MS = 24 * 60 * 60_000;
+const DAY_MS = 24 * 60 * 60_000;
+/** The last few minutes before a sync aren't counted as read, so mail Gmail files a little late isn't missed. */
+const SETTLE_MS = 10 * 60_000;
 
 const RECONNECT = 'Google needs you to connect Gmail again (it ends test-mode connections after 7 days).';
 
@@ -39,6 +42,8 @@ export interface ConnectionView {
   syncError: string | null;
   lastSyncedAt: string | null;
   connectedAt: string;
+  /** The time ranges already read from Gmail (ISO), merged; a date range outside them needs a sync. */
+  readRanges: { from: string; to: string }[];
 }
 
 export interface InboxEmailView {
@@ -84,15 +89,20 @@ export class InboxService {
     @Optional() @Inject(EMAIL_CLASSIFIER) private readonly classifier: EmailClassifier | null,
   ) {}
 
-  async view(userId: string, jobId?: string): Promise<InboxView> {
+  /**
+   * The connection and the emails about the user's applications (job alerts and
+   * general job-search mail are left out unless linked to a job), newest first.
+   * Optionally one job's emails, or those received in [since, until).
+   */
+  async view(userId: string, filter: { jobId?: string; since?: Date; until?: Date } = {}): Promise<InboxView> {
     const conn = await this.store.connection(userId);
-    const [rows, jobs] = await Promise.all([conn ? this.store.list(userId, jobId) : Promise.resolve([]), this.jobs.list(userId)]);
+    const [rows, jobs] = await Promise.all([conn ? this.store.list(userId, filter) : Promise.resolve([]), this.jobs.list(userId)]);
     const byId = new Map(jobs.map((j) => [j.id, j]));
     return {
       enabled: Boolean(this.gmail),
       aiEnabled: Boolean(this.classifier),
       connection: conn ? connectionView(conn) : null,
-      emails: rows.map((r) => emailView(r, byId)),
+      emails: rows.filter(isShown).map((r) => emailView(r, byId)),
     };
   }
 
@@ -141,8 +151,12 @@ export class InboxService {
     if (token && this.gmail) await this.gmail.revoke(token).catch((e) => this.logger.warn(`Revoking a Gmail token failed: ${e}`));
   }
 
-  /** Starts reading new job emails; returns at once. Poll GET /inbox until the sync is no longer 'syncing'. */
-  async sync(userId: string): Promise<InboxView> {
+  /**
+   * Starts reading job emails in a time window (default: the last 60 days),
+   * skipping what's been read before; returns at once. Poll GET /inbox until
+   * the sync is no longer 'syncing'.
+   */
+  async sync(userId: string, window?: { since: Date; until: Date }): Promise<InboxView> {
     const gmail = this.requireGmail();
     if (!this.classifier) throw new ServiceUnavailableException("Reading emails with AI isn't set up on this server");
     const conn = await this.store.connection(userId);
@@ -152,7 +166,11 @@ export class InboxService {
     if (!(await this.store.startSync(userId, runId, new Date(Date.now() - SYNC_TIMEOUT_MS)))) {
       return this.view(userId); // already syncing: nothing to start
     }
-    const run = this.runSync(gmail, this.classifier, userId, runId, conn).finally(() => {
+    const now = Date.now();
+    const want: TimeRange = window
+      ? { from: window.since.getTime(), to: Math.min(window.until.getTime(), now) }
+      : { from: now - INBOX_LIMITS.defaultDays * DAY_MS, to: now };
+    const run = this.runSync(gmail, this.classifier, userId, runId, conn, want, !window).finally(() => {
       if (this.running.get(userId) === run) this.running.delete(userId);
     });
     this.running.set(userId, run);
@@ -194,38 +212,82 @@ export class InboxService {
     await Promise.all(this.running.values());
   }
 
-  private async runSync(gmail: GmailApi, classifier: EmailClassifier, userId: string, runId: string, conn: ConnectionRow): Promise<void> {
-    const startedAt = new Date();
+  /**
+   * Reads the parts of `want` not read before, newest first, up to the per-sync
+   * and per-day limits. What was fully read is recorded as read, so the rest
+   * is picked up by the next sync.
+   */
+  private async runSync(gmail: GmailApi, classifier: EmailClassifier, userId: string, runId: string, conn: ConnectionRow, want: TimeRange, newMail: boolean): Promise<void> {
+    const startedAt = Date.now();
     try {
       const token = await this.accessToken(userId);
-      const first = !conn.lastSyncedAt;
-      const query = jobEmailQuery(
-        first ? { days: INBOX_LIMITS.firstSyncDays } : { days: INBOX_LIMITS.firstSyncDays, after: (conn.lastSyncedAt!.getTime() - OVERLAP_MS) / 1000 },
-      );
-      const ids = await gmail.listMessageIds(token, query, first ? INBOX_LIMITS.firstSyncMax : INBOX_LIMITS.laterSyncMax);
       const known = await this.store.knownGmailIds(userId);
-      const fresh = ids.filter((id) => !known.has(id));
-
-      const usedToday = await this.store.readSince(userId, new Date(Date.now() - 24 * 60 * 60_000));
-      const allowed = Math.max(0, INBOX_LIMITS.perDay - usedToday);
-      const todo = fresh.slice(0, allowed);
       const jobs = await this.jobs.list(userId);
       const forClaude: ClassifyJob[] = jobs.map((j) => ({ title: j.title, company: j.company, host: hostOf(j.applyUrl ?? j.url), status: j.applicationStatus }));
+      let ranges = conn.readRanges;
+      let room = INBOX_LIMITS.perSync;
+      let note: string | null = null;
 
-      // Oldest first, so a thread's first email is linked before its replies.
-      todo.reverse();
-      for (let i = 0; i < todo.length; i += INBOX_LIMITS.batch) {
-        const batch = await Promise.all(todo.slice(i, i + INBOX_LIMITS.batch).map(async (id) => parseMessage(await gmail.getMessage(token, id))));
-        const verdicts = await classifier.classify(
-          batch.map((m) => ({ from: m.fromName ? `${m.fromName} <${m.fromAddress}>` : m.fromAddress, subject: m.subject, receivedAt: m.receivedAt, text: m.text })),
-          forClaude,
-        );
-        for (let n = 0; n < batch.length; n++) await this.save(userId, batch[n], verdicts.get(n + 1), jobs);
+      for (const gap of gaps(ranges, want)) {
+        const allowedToday = INBOX_LIMITS.perDay - (await this.store.readSince(userId, new Date(Date.now() - DAY_MS)));
+        if (allowedToday <= 0) {
+          note = "You've reached today's limit for reading emails; the rest will be read tomorrow.";
+          break;
+        }
+        if (room <= 0) {
+          note = 'There are more emails in these dates: check again to read the rest.';
+          break;
+        }
+        const limit = room;
+        const ids = await gmail.listMessageIds(token, jobEmailQuery(gap), limit);
+        const fresh = ids.filter((id) => !known.has(id));
+        const todo = fresh.slice(0, Math.min(room, allowedToday));
+        const todoSet = new Set(todo);
+
+        // Oldest first, so a thread's first email is linked before its replies.
+        const read = new Map<string, Date>();
+        const ordered = [...todo].reverse();
+        for (let i = 0; i < ordered.length; i += INBOX_LIMITS.batch) {
+          const batch = await Promise.all(ordered.slice(i, i + INBOX_LIMITS.batch).map(async (id) => parseMessage(await gmail.getMessage(token, id))));
+          const verdicts = await classifier.classify(
+            batch.map((m) => ({ from: m.fromName ? `${m.fromName} <${m.fromAddress}>` : m.fromAddress, subject: m.subject, receivedAt: m.receivedAt, text: m.text })),
+            forClaude,
+          );
+          for (let n = 0; n < batch.length; n++) {
+            await this.save(userId, batch[n], verdicts.get(n + 1), jobs);
+            read.set(batch[n].gmailId, batch[n].receivedAt);
+            known.set(batch[n].gmailId, batch[n].receivedAt);
+          }
+        }
+        room -= todo.length;
+
+        // Gmail lists newest first: everything up to the first email left unread has been seen.
+        const full = ids.length >= limit || todo.length < fresh.length;
+        let readFrom = gap.from;
+        if (full) {
+          readFrom = gap.to;
+          for (const id of ids) {
+            if (!known.has(id) && !todoSet.has(id)) break;
+            const at = (read.get(id) ?? known.get(id))!.getTime();
+            readFrom = Math.min(readFrom, at);
+          }
+        }
+        // The newest few minutes stay unread, in case Gmail files mail a little late.
+        const readTo = gap.to >= startedAt - 1000 ? startedAt - SETTLE_MS : gap.to;
+        if (readTo > readFrom) {
+          ranges = mergeRanges([...ranges, { from: readFrom, to: readTo }]);
+          await this.store.setReadRanges(userId, ranges);
+        }
+        if (full) {
+          note =
+            todo.length < fresh.length && room > 0
+              ? "You've reached today's limit for reading emails; the rest will be read tomorrow."
+              : 'There are more emails in these dates: check again to read the rest.';
+          break;
+        }
       }
-
-      // Only move the sync point on when everything found was read; otherwise the rest is picked up next time.
-      const complete = todo.length === fresh.length;
-      await this.store.finishSync(userId, runId, complete ? startedAt : null, complete ? null : "You've reached today's limit for reading emails; the rest will be read tomorrow.");
+      // "Checked" means new mail up to now was read completely.
+      await this.store.finishSync(userId, runId, newMail && !note ? new Date(startedAt) : null, note);
     } catch (e) {
       let message = 'Something went wrong reading your email. Please try again.';
       if (e instanceof GmailAuthError) {
@@ -337,6 +399,7 @@ function connectionView(c: ConnectionRow): ConnectionView {
     syncError: stuck ? 'Reading your email took too long. Please try again.' : c.syncError,
     lastSyncedAt: c.lastSyncedAt?.toISOString() ?? null,
     connectedAt: c.connectedAt.toISOString(),
+    readRanges: toStored(c.readRanges),
   };
 }
 

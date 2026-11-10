@@ -57,12 +57,11 @@ describe('Gmail messages', () => {
 });
 
 describe('Gmail search and sign-in', () => {
-  it('searches 60 days at first, then from a point in time, never the user\'s own mail', () => {
-    const first = jobEmailQuery({ days: 60 });
-    expect(first.startsWith('newer_than:60d -from:me -in:chats {')).toBe(true);
-    expect(first).toContain('from:greenhouse.io');
-    expect(first).toContain('subject:(application OR');
-    expect(jobEmailQuery({ days: 60, after: 1_700_000_000.7 }).startsWith('after:1700000000 ')).toBe(true);
+  it('searches a time window, never the user\'s own mail', () => {
+    const q = jobEmailQuery({ from: 1_700_000_000_400, to: 1_700_086_400_200 });
+    expect(q.startsWith('after:1700000000 before:1700086401 -from:me -in:chats {')).toBe(true);
+    expect(q).toContain('from:greenhouse.io');
+    expect(q).toContain('subject:(application OR');
   });
 
   it('makes a PKCE pair whose challenge is the S256 hash of the verifier', () => {

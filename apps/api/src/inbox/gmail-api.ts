@@ -56,13 +56,14 @@ export const JOB_SENDER_DOMAINS = [
 const SUBJECT_WORDS = ['application', 'applying', 'applied', 'interview', 'assessment', 'offer', 'position', 'role', 'candidate', 'candidacy', 'recruiter', 'opportunity', 'hiring'];
 
 /**
- * The Gmail search for likely job emails: from a hiring system or with a
- * job-ish subject, not sent by the user. Claude then decides which really are.
- * `after` (epoch seconds) limits it to newer mail on later syncs.
+ * The Gmail search for likely job emails in a time window (epoch ms): from a
+ * hiring system or with a job-ish subject, not sent by the user. Claude then
+ * decides which really are.
  */
-export function jobEmailQuery(opts: { days: number; after?: number }): string {
-  const when = opts.after ? `after:${Math.floor(opts.after)}` : `newer_than:${opts.days}d`;
-  return `${when} -from:me -in:chats {${JOB_SENDER_DOMAINS.map((d) => `from:${d}`).join(' ')} subject:(${SUBJECT_WORDS.join(' OR ')})}`;
+export function jobEmailQuery(window: { from: number; to: number }): string {
+  const after = Math.floor(window.from / 1000);
+  const before = Math.ceil(window.to / 1000);
+  return `after:${after} before:${before} -from:me -in:chats {${JOB_SENDER_DOMAINS.map((d) => `from:${d}`).join(' ')} subject:(${SUBJECT_WORDS.join(' OR ')})}`;
 }
 
 const AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';

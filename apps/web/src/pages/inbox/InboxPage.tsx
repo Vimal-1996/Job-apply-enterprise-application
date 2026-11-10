@@ -8,7 +8,27 @@ import { formatDateTime } from '../admin/format';
 import { statusInfo } from '../jobs/applicationView';
 import { POLL_MS } from '../jobs/JobsPage';
 import { jobTitle } from '../jobs/jobView';
-import { CATEGORIES, dueLabel, filterCounts, filterEmails, FILTERS, sender, shouldAutoSync, type InboxFilter } from './inboxView';
+import {
+  CATEGORIES,
+  dueLabel,
+  filterCounts,
+  filterEmails,
+  FILTERS,
+  groupByDay,
+  isRead,
+  MAX_DAYS_BACK,
+  presetRange,
+  PRESETS,
+  rangeLabel,
+  rangeProblem,
+  rangeWindow,
+  sender,
+  shouldAutoSync,
+  ymd,
+  type DayRange,
+  type InboxFilter,
+  type RangePreset,
+} from './inboxView';
 
 /** The linked job's name (the email only carries its title and company). */
 const linkedTitle = (j: NonNullable<InboxEmail['job']>) => j.title ?? 'Untitled job';
@@ -16,8 +36,10 @@ const linkedTitle = (j: NonNullable<InboxEmail['job']>) => j.title ?? 'Untitled 
 const message = (e: unknown, fallback: string) => (e instanceof ApiError || e instanceof Error ? e.message : fallback);
 
 /**
- * Job emails from the user's Gmail: Claude's summary of each, what to do and
- * by when, which saved job it's about (highlighted), and stage changes to accept.
+ * Emails about the user's applications, from their Gmail, for a date range
+ * they pick: Claude's summary of each, what to do and by when, which saved job
+ * it's about (highlighted), and stage changes to accept. Dates not read from
+ * Gmail before are read when chosen.
  */
 export function InboxPage() {
   const token = useAuth().user?.access_token;
@@ -27,18 +49,26 @@ export function InboxPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<InboxFilter>('all');
+  const [preset, setPreset] = useState<RangePreset>('30');
+  /** The dates shown. */
+  const [range, setRange] = useState<DayRange>(() => presetRange(30));
   const autoSynced = useRef(false);
+  /** Date ranges already asked to be read this visit, so a partly read range isn't re-requested in a loop. */
+  const requested = useRef(new Set<string>());
+
+  const window_ = rangeWindow(range);
+  const query = `/inbox?since=${encodeURIComponent(window_.since)}&until=${encodeURIComponent(window_.until)}`;
 
   const load = useCallback(async () => {
     try {
-      const [v, j] = await Promise.all([apiGet<InboxView>('/inbox', token), apiGet<JobSummary[]>('/jobs', token)]);
+      const [v, j] = await Promise.all([apiGet<InboxView>(query, token), apiGet<JobSummary[]>('/jobs', token)]);
       setView(v);
       setJobs(j);
       setLoadError(false);
     } catch {
       setLoadError(true);
     }
-  }, [token]);
+  }, [query, token]);
 
   useEffect(() => {
     void load();
@@ -69,26 +99,47 @@ export function InboxPage() {
       window.location.assign(url);
     }, 'Could not start connecting Gmail.');
 
+  /** Reads new mail, or (with a window) the chosen dates; then shows the chosen dates. */
   const sync = useCallback(
-    () =>
+    (w?: { since: string; until: string }) =>
       act(async () => {
-        setView(await apiPost<InboxView>('/inbox/sync', token));
-      }, 'Could not check for new emails.'),
-    [token],
+        await apiPost<InboxView>('/inbox/sync', token, w);
+        await load();
+      }, 'Could not read your emails.'),
+    [token, load],
   );
 
   const disconnect = () =>
     act(async () => {
       await apiDelete('/inbox/connection', token);
+      requested.current.clear();
       await load();
     }, 'Could not disconnect Gmail.');
 
-  // Opening the page checks for new mail, unless that happened in the last few minutes.
+  const c = view?.connection ?? null;
+  const ready = Boolean(view?.aiEnabled && c && c.status === 'connected' && c.syncStatus !== 'syncing');
+  const unread = Boolean(c && !isRead(c.readRanges, window_));
+
+  // Opening the page checks for new mail, unless that happened in the last few minutes;
+  // choosing dates that haven't been read yet reads them.
   useEffect(() => {
-    if (!view || autoSynced.current || !view.aiEnabled || !shouldAutoSync(view.connection)) return;
-    autoSynced.current = true;
-    void sync();
-  }, [view, sync]);
+    if (!view || !ready || busy) return;
+    if (!autoSynced.current && shouldAutoSync(c)) {
+      autoSynced.current = true;
+      void sync();
+      return;
+    }
+    const key = `${window_.since}|${window_.until}`;
+    if (unread && !requested.current.has(key)) {
+      requested.current.add(key);
+      void sync(window_);
+    }
+  }, [view, ready, busy, unread, c, window_, sync]);
+
+  const choosePreset = (p: RangePreset) => {
+    setPreset(p);
+    if (p !== 'custom') setRange(presetRange(Number(p)));
+  };
 
   const replace = (e: InboxEmail) => setView((v) => (v ? { ...v, emails: v.emails.map((x) => (x.id === e.id ? e : x)) } : v));
 
@@ -107,7 +158,7 @@ export function InboxPage() {
     <>
       <header className="page-head">
         <h1>Inbox</h1>
-        <p>Job emails from your Gmail, summarized. Emails about jobs you've saved here are highlighted and can move them along your Applications board.</p>
+        <p>Emails about your applications, from your Gmail, summarized. Ones about jobs you've saved here are highlighted and can move them along your Applications board.</p>
       </header>
 
       {error && (
@@ -122,11 +173,23 @@ export function InboxPage() {
             Connecting Gmail isn't set up on this server yet (it needs a Google OAuth client).
           </p>
         </div>
-      ) : !view.connection ? (
+      ) : !c ? (
         <ConnectCard busy={busy} onConnect={() => void connect()} />
       ) : (
         <>
-          <ConnectionBar c={view.connection} busy={busy} aiEnabled={view.aiEnabled} onSync={() => void sync()} onReconnect={() => void connect()} onDisconnect={() => void disconnect()} />
+          <ConnectionBar c={c} busy={busy} aiEnabled={view.aiEnabled} onSync={() => void sync()} onReconnect={() => void connect()} onDisconnect={() => void disconnect()} />
+
+          <DateBar
+            preset={preset}
+            range={range}
+            onPreset={choosePreset}
+            onCustom={(r) => setRange(r)}
+            count={view.emails.length}
+            syncing={syncing}
+            unread={unread}
+            canRead={ready && !busy}
+            onReadRest={() => void sync(window_)}
+          />
 
           {view.emails.length > 0 && (
             <div className="row" style={{ margin: '4px 0 12px' }}>
@@ -140,29 +203,114 @@ export function InboxPage() {
             </div>
           )}
 
-          {view.emails.length === 0 && !syncing && view.connection.lastSyncedAt && (
+          {view.emails.length === 0 && !syncing && !unread && (
             <div className="card">
               <p className="muted" style={{ margin: 0 }}>
-                No job emails found in the last 60 days.
+                No emails about your applications between {rangeLabel(range)}.
               </p>
             </div>
           )}
           {shown.length === 0 && view.emails.length > 0 && (
             <div className="card">
               <p className="muted" style={{ margin: 0 }}>
-                Nothing here right now.
+                Nothing here for these dates.
               </p>
             </div>
           )}
 
-          <ul className="inbox-list">
-            {shown.map((e) => (
-              <EmailCard key={e.id} e={e} jobs={jobs} token={token} onChange={replace} />
-            ))}
-          </ul>
+          {groupByDay(shown).map((g) => (
+            <section key={g.key} className="inbox-day" aria-label={g.label}>
+              <h3 className="inbox-day-head">{g.label}</h3>
+              <ul className="inbox-list">
+                {g.emails.map((e) => (
+                  <EmailCard key={e.id} e={e} jobs={jobs} token={token} onChange={replace} />
+                ))}
+              </ul>
+            </section>
+          ))}
         </>
       )}
     </>
+  );
+}
+
+/** Which dates to show: presets, or two picked dates. Says when dates are still being read from Gmail. */
+function DateBar(props: {
+  preset: RangePreset;
+  range: DayRange;
+  onPreset: (p: RangePreset) => void;
+  onCustom: (r: DayRange) => void;
+  count: number;
+  syncing: boolean;
+  unread: boolean;
+  canRead: boolean;
+  onReadRest: () => void;
+}) {
+  const [draft, setDraft] = useState<DayRange>(props.range);
+  const problem = rangeProblem(draft);
+  const today = new Date();
+  const oldest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - MAX_DAYS_BACK);
+
+  // Picking "Pick dates" starts from what's shown.
+  useEffect(() => {
+    if (props.preset === 'custom') setDraft(props.range);
+  }, [props.preset]);
+
+  return (
+    <div className="card" style={{ marginBottom: 12, gap: 10 }}>
+      <div className="row" style={{ gap: 12 }}>
+        <div className="tabs" role="tablist" aria-label="Dates">
+          {PRESETS.map((p) => (
+            <button key={p.value} role="tab" aria-selected={props.preset === p.value} className={`tab${props.preset === p.value ? ' active' : ''}`} onClick={() => props.onPreset(p.value)}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <span className="spacer" />
+        <span className="muted">
+          {rangeLabel(props.range)} · {props.count} email{props.count === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      {props.preset === 'custom' && (
+        <form
+          className="row"
+          style={{ gap: 10, alignItems: 'flex-end' }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!problem) props.onCustom(draft);
+          }}
+        >
+          <label className="field" style={{ margin: 0 }}>
+            From
+            <input className="input" type="date" value={draft.from} min={ymd(oldest)} max={ymd(today)} onChange={(e) => setDraft({ ...draft, from: e.target.value })} />
+          </label>
+          <label className="field" style={{ margin: 0 }}>
+            To
+            <input className="input" type="date" value={draft.to} min={ymd(oldest)} max={ymd(today)} onChange={(e) => setDraft({ ...draft, to: e.target.value })} />
+          </label>
+          <button className="btn btn-primary" type="submit" disabled={Boolean(problem)}>
+            Show emails
+          </button>
+          {problem && draft.from && draft.to && <span className="notice error">{problem}</span>}
+        </form>
+      )}
+
+      {props.syncing ? (
+        <span className="row" role="status" aria-live="polite" style={{ gap: 6 }}>
+          <Spinner small /> Reading your emails for these dates from Gmail…
+        </span>
+      ) : (
+        props.unread && (
+          <span className="row" style={{ gap: 8 }}>
+            <span className="muted">Some of these dates haven't been read from Gmail yet.</span>
+            <button className="btn btn-ghost" onClick={props.onReadRest} disabled={!props.canRead}>
+              Read these dates
+            </button>
+          </span>
+        )
+      )}
+    </div>
   );
 }
 

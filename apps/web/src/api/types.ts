@@ -227,6 +227,8 @@ export interface GmailConnection {
   syncError: string | null;
   lastSyncedAt: string | null;
   connectedAt: string;
+  /** Time ranges already read from Gmail (ISO), merged. */
+  readRanges: { from: string; to: string }[];
 }
 
 export interface InboxView {

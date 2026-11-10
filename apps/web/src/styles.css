@@ -445,3 +445,5 @@ textarea.input { resize: vertical; line-height: 1.45; }
 .inbox-suggestion { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin: 0; }
 .inbox-body { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); padding: 10px 12px; max-height: 360px; overflow: auto; }
 .inbox-body pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 14px; }
+.inbox-day { display: grid; gap: 8px; margin-bottom: 14px; }
+.inbox-day-head { margin: 4px 0 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }

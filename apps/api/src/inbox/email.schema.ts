@@ -21,6 +21,12 @@ export const EMAIL_CATEGORIES = [
 ] as const;
 export type EmailCategory = (typeof EMAIL_CATEGORIES)[number];
 
+/** Kinds of email about the user's own applications: what the inbox shows (plus anything linked to a job). */
+export const APPLICATION_CATEGORIES: readonly EmailCategory[] = ['application_received', 'interview', 'assessment', 'rejection', 'offer', 'recruiter_outreach'];
+
+export const isShown = (e: { category: EmailCategory; jobId: string | null; jobRelated: boolean }) =>
+  e.jobRelated && (APPLICATION_CATEGORIES.includes(e.category) || e.jobId !== null);
+
 export const EmailVerdictSchema = z.object({
   emails: z.array(
     z.object({
