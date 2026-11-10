@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from '../../api/client';
-import type { JobDetails, JobMatch, JobView } from '../../api/types';
+import type { InboxView, JobDetails, JobMatch, JobView } from '../../api/types';
 import { Badge, Spinner } from '../../components/ui';
 import { formatDateTime } from '../admin/format';
+import { CATEGORIES } from '../inbox/inboxView';
 import { statusInfo } from './applicationView';
 import { MatchBadge, POLL_MS } from './JobsPage';
 import { jobTitle, safeUrl, sourceLabel } from './jobView';
@@ -172,6 +173,7 @@ export function JobDetailPage() {
       </div>
 
       <ApplicationCard job={job} token={token} onSaved={setJob} />
+      <JobEmailsCard jobId={job.id} token={token} version={job.applicationStatus} />
 
       <div className="card profile-details">
         <h3 style={{ margin: 0 }}>About the job</h3>
@@ -227,6 +229,7 @@ function ApplicationCard({ job, token, onSaved }: { job: JobView; token: string 
         {job.timeline.map((t, i) => (
           <li key={i}>
             {statusInfo(t.status).label} · {formatDateTime(t.at)}
+            {t.source === 'email' && ' (from an email)'}
           </li>
         ))}
       </ol>
@@ -245,6 +248,51 @@ function ApplicationCard({ job, token, onSaved }: { job: JobView; token: string 
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Emails from the user's Gmail linked to this job, newest first. Hidden when Gmail isn't connected or nothing is linked. */
+function JobEmailsCard({ jobId, token, version }: { jobId: string; token: string | undefined; version: string }) {
+  const [emails, setEmails] = useState<InboxView['emails']>([]);
+
+  useEffect(() => {
+    apiGet<InboxView>(`/inbox?jobId=${encodeURIComponent(jobId)}`, token)
+      .then((v) => setEmails(v.emails))
+      .catch(() => setEmails([]));
+  }, [jobId, token, version]);
+
+  if (emails.length === 0) return null;
+  return (
+    <div className="card">
+      <div className="row">
+        <h3>Emails about this job</h3>
+        <span className="spacer" />
+        <Link to="/inbox">Open Inbox</Link>
+      </div>
+      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 10 }}>
+        {emails.map((e) => (
+          <li key={e.id} style={{ display: 'grid', gap: 2 }}>
+            <span className="row" style={{ gap: 8 }}>
+              <Badge tone={CATEGORIES[e.category].tone}>{CATEGORIES[e.category].label}</Badge>
+              <strong>{e.subject}</strong>
+              <span className="muted" style={{ fontSize: 13 }}>
+                {formatDateTime(e.receivedAt)}
+              </span>
+            </span>
+            {e.summary && <span>{e.summary}</span>}
+            {e.action && (
+              <span>
+                <strong>To do:</strong> {e.action}
+                {e.actionDue && ` (by ${e.actionDue})`}
+              </span>
+            )}
+            <a href={e.threadUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
+              Open in Gmail ↗
+            </a>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

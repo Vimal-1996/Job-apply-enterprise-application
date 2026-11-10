@@ -16,6 +16,8 @@ import { ApplicationsPage } from './pages/jobs/ApplicationsPage';
 import { JobDetailPage } from './pages/jobs/JobDetailPage';
 import { JobsPage } from './pages/jobs/JobsPage';
 import { TailorResumePage } from './pages/jobs/TailorResumePage';
+import { GmailCallbackPage } from './pages/inbox/GmailCallbackPage';
+import { InboxPage } from './pages/inbox/InboxPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
 import { ResumePage } from './pages/resume/ResumePage';
 
@@ -52,6 +54,7 @@ function Shell() {
           {isJobSeeker && <NavLink to="/profile">Profile</NavLink>}
           {isJobSeeker && <NavLink to="/jobs">Jobs</NavLink>}
           {isJobSeeker && <NavLink to="/applications">Applications</NavLink>}
+          {isJobSeeker && <NavLink to="/inbox">Inbox</NavLink>}
           {isAdmin && (
             <NavLink to="/admin">
               Admin <span className="soon admin-tag">admin</span>
@@ -115,6 +118,8 @@ export function App() {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/jobs" element={<JobsPage />} />
         <Route path="/applications" element={<ApplicationsPage />} />
+        <Route path="/inbox" element={<InboxPage />} />
+        <Route path="/gmail/callback" element={<GmailCallbackPage />} />
         <Route path="/jobs/:id" element={<JobDetailPage />} />
         <Route path="/jobs/:id/resume" element={<TailorResumePage />} />
       </Route>
