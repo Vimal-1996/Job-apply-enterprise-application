@@ -19,6 +19,7 @@ import {
   MAX_DAYS_BACK,
   presetRange,
   PRESETS,
+  progressText,
   rangeLabel,
   rangeProblem,
   rangeWindow,
@@ -186,6 +187,7 @@ export function InboxPage() {
             onCustom={(r) => setRange(r)}
             count={view.emails.length}
             syncing={syncing}
+            progress={c.progress}
             unread={unread}
             canRead={ready && !busy}
             onReadRest={() => void sync(window_)}
@@ -242,6 +244,7 @@ function DateBar(props: {
   onCustom: (r: DayRange) => void;
   count: number;
   syncing: boolean;
+  progress: GmailConnection['progress'];
   unread: boolean;
   canRead: boolean;
   onReadRest: () => void;
@@ -298,7 +301,7 @@ function DateBar(props: {
 
       {props.syncing ? (
         <span className="row" role="status" aria-live="polite" style={{ gap: 6 }}>
-          <Spinner small /> Reading your emails for these dates from Gmail…
+          <Spinner small /> {progressText(props.progress)}
         </span>
       ) : (
         props.unread && (
@@ -365,7 +368,7 @@ function ConnectionBar(props: {
         <span className="spacer" />
         {syncing ? (
           <span className="row" role="status" aria-live="polite" style={{ gap: 6 }}>
-            <Spinner small /> Reading new job emails…
+            <Spinner small /> {progressText(c.progress)}
           </span>
         ) : (
           c.status === 'connected' &&

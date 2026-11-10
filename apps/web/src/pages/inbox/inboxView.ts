@@ -49,6 +49,11 @@ export function shouldAutoSync(c: GmailConnection | null, now = Date.now(), maxA
   return now - new Date(c.lastSyncedAt).getTime() > maxAgeMs;
 }
 
+/** "Reading your emails… 24 of 96" (no count until some were found). */
+export function progressText(p: { done: number; total: number } | null): string {
+  return p && p.total > 0 ? `Reading your emails… ${Math.min(p.done, p.total)} of ${p.total}` : 'Reading your emails…';
+}
+
 export const sender = (e: Pick<InboxEmail, 'fromName' | 'fromAddress'>) => e.fromName ?? e.fromAddress;
 
 /* ---- Date ranges (calendar days in the user's time zone) ---- */

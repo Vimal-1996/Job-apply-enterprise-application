@@ -32,8 +32,24 @@ export interface EmailClassifier {
 /** Classifying failed for a reason the user can be told; `message` is safe to show. */
 export class ClassifyError extends Error {}
 
-/** Long emails (job-alert digests, mostly) are cut to this many characters; the start says what they are. */
-export const EMAIL_TEXT_MAX = 6000;
+/** Emails are cut to this many characters: the start says what an email is, and long ones are mostly job-alert digests. */
+export const EMAIL_TEXT_MAX = 2500;
+
+/**
+ * An email's text as Claude needs it to sort and summarize: links (mostly long
+ * tracking URLs) shortened to [link], blank space squeezed, and cut to size.
+ * Fewer tokens make each request faster and cheaper.
+ */
+export function cleanEmailText(text: string): string {
+  const t = text
+    .replace(/<?https?:\/\/[^\s<>()]+>?/gi, '[link]')
+    .replace(/(\[link\][ \t]*){2,}/g, '[link] ')
+    .replace(/[ \t\u00a0]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return t.length > EMAIL_TEXT_MAX ? `${t.slice(0, EMAIL_TEXT_MAX)}\n[…email cut short]` : t;
+}
 
 const SYSTEM = `You help a job seeker keep track of their job search email. You get a numbered list of the jobs they have saved, and a numbered batch of emails from their inbox that a keyword search picked out as possibly job-related.
 
@@ -49,7 +65,7 @@ export function classifyMessage(emails: ClassifyEmail[], jobs: ClassifyJob[]): s
     : '(none)';
   const emailList = emails
     .map((e, i) => {
-      const text = e.text.length > EMAIL_TEXT_MAX ? `${e.text.slice(0, EMAIL_TEXT_MAX)}\n[…email cut short]` : e.text;
+      const text = cleanEmailText(e.text);
       return `<email number="${i + 1}">\nFrom: ${e.from}\nDate: ${e.receivedAt.toISOString().slice(0, 10)}\nSubject: ${e.subject}\n\n${text}\n</email>`;
     })
     .join('\n\n');

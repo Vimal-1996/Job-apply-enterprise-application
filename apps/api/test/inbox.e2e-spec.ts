@@ -204,6 +204,7 @@ describe('Gmail inbox (e2e)', () => {
     expect(inbox.connection.syncStatus).toBe('idle');
     expect(inbox.connection.lastSyncedAt).not.toBeNull();
     expect(inbox.connection.readRanges).toHaveLength(1);
+    expect(inbox.connection.progress).toBeNull();
     // Only emails about applications: the newsletter (not about a job) and the job alert are hidden; newest first.
     expect(inbox.emails.map((e: { subject: string }) => e.subject)).toEqual(['Re: Interview: Backend Engineer', 'Interview: Backend Engineer']);
     const [reminder, invite] = inbox.emails;

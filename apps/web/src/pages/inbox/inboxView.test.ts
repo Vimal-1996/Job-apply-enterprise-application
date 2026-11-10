@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GmailConnection, InboxEmail } from '../../api/types';
-import { dueLabel, filterCounts, filterEmails, groupByDay, isRead, presetRange, rangeLabel, rangeProblem, rangeWindow, sender, shouldAutoSync } from './inboxView';
+import { dueLabel, filterCounts, filterEmails, groupByDay, progressText, isRead, presetRange, rangeLabel, rangeProblem, rangeWindow, sender, shouldAutoSync } from './inboxView';
 
 const email = (over: Partial<InboxEmail>): InboxEmail => ({
   id: 'e',
@@ -28,6 +28,7 @@ const conn = (over: Partial<GmailConnection>): GmailConnection => ({
   lastSyncedAt: null,
   connectedAt: '2026-11-01T00:00:00Z',
   readRanges: [],
+  progress: null,
   ...over,
 });
 
@@ -72,6 +73,14 @@ describe('shouldAutoSync', () => {
     expect(shouldAutoSync(conn({ status: 'expired' }), now)).toBe(false);
     expect(shouldAutoSync(conn({ lastSyncedAt: '2026-11-10T11:55:00Z' }), now)).toBe(false);
     expect(shouldAutoSync(conn({ lastSyncedAt: '2026-11-10T11:00:00Z' }), now)).toBe(true);
+  });
+});
+
+describe('progressText', () => {
+  it('counts once emails were found', () => {
+    expect(progressText(null)).toBe('Reading your emails…');
+    expect(progressText({ done: 0, total: 0 })).toBe('Reading your emails…');
+    expect(progressText({ done: 24, total: 96 })).toBe('Reading your emails… 24 of 96');
   });
 });
 
