@@ -151,3 +151,30 @@ export interface JobView extends JobSummary {
   /** The profile changed after this job was matched, so the match may be out of date. */
   profileChanged: boolean;
 }
+
+export type SuggestionKind = 'summary' | 'headline' | 'add_skill' | 'rewrite_bullet' | 'add_bullet';
+export type Decision = 'pending' | 'accepted' | 'rejected';
+
+export interface Suggestion {
+  id: string;
+  kind: SuggestionKind;
+  workIndex: number | null;
+  bulletIndex: number | null;
+  before: string | null;
+  after: string;
+  reason: string;
+  source: 'resume' | 'needs_confirmation';
+  question: string | null;
+  decision: Decision;
+  editedText: string | null;
+}
+
+export interface DraftView {
+  status: 'none' | 'suggesting' | 'ready' | 'failed';
+  suggestions: Suggestion[];
+  roles: { title: string; company: string }[];
+  error: string | null;
+  suggestedAt: string | null;
+  profileChanged: boolean;
+  aiEnabled: boolean;
+}

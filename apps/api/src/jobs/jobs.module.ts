@@ -24,5 +24,6 @@ import { JOB_STORE, JobsService } from './jobs.service';
       },
     },
   ],
+  exports: [JobsService],
 })
 export class JobsModule {}
