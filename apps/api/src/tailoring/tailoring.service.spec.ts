@@ -10,7 +10,6 @@ import { CandidateProfile, EMPTY_PREFERENCES } from '../profile/profile.schema';
 import { ProfileService, ProfileView } from '../profile/profile.service';
 import { DraftStore } from './draft-store';
 import { profileForPrompt, ResumeTailor, TailorError, tailorMessage } from './resume-tailor';
-import { buildResumeDocx, formatMonth, resumeFileName } from './resume-docx';
 import { applySuggestions, parseDecisions, RawSuggestion, Suggestion, TAILORING_LIMITS, tidySuggestions } from './tailoring.schema';
 import { TAILOR_TIMEOUT_MS, TailoringService } from './tailoring.service';
 
@@ -150,26 +149,6 @@ describe('the prompt', () => {
   });
 });
 
-describe('the Word resume', () => {
-  it('has the standard sections and the profile text, in one column with no tables', async () => {
-    const bytes = await buildResumeDocx(PROFILE);
-    const xml = await (await JSZip.loadAsync(bytes)).file('word/document.xml')!.async('string');
-    const text = xml.replace(/<[^>]+>/g, ' ');
-    for (const t of ['Jane Doe', 'SUMMARY', 'SKILLS', 'EXPERIENCE', 'EDUCATION', 'Built the billing API', 'Mar 2021', 'Present', 'University of Toronto']) {
-      expect(text).toContain(t);
-    }
-    expect(xml).not.toContain('<w:tbl>');
-    expect(xml).not.toContain('<w:txbxContent>');
-  });
-
-  it('formats dates and file names safely', () => {
-    expect(formatMonth('2021-03')).toBe('Mar 2021');
-    expect(formatMonth('2018')).toBe('2018');
-    expect(resumeFileName('Jane Doe', 'Acme / Corp')).toBe('Jane Doe - Acme Corp resume.docx');
-    expect(resumeFileName(null, null)).toBe('Tailored resume.docx');
-  });
-});
-
 // ---------------------------------------------------------------- service
 
 const ANALYSIS: JobAnalysis = {
@@ -270,6 +249,30 @@ describe('TailoringService', () => {
     expect(text).toContain('PostgreSQL');
     expect(text).not.toContain('Kubernetes');
     expect(text).not.toContain('Engineer who builds APIs.');
+  });
+
+  it('builds the Workday layout, with profile fixes made after the suggestions, and lists what is missing', async () => {
+    const { service, state, addJob } = await setup();
+    const jobId = await addJob();
+    await service.start('u1', jobId);
+    await service.whenIdle();
+    const view = await service.get('u1', jobId);
+    expect(view.checks.map((c) => c.message)).toContain('Add a phone number: Workday asks for one.');
+    await service.decide('u1', jobId, [{ id: view.suggestions[0].id, decision: 'accepted' }]);
+
+    // The user fixes their phone and a start month on the Profile page afterwards.
+    state.profile = {
+      ...PROFILE,
+      phone: '+1 416 555 0100',
+      workHistory: [PROFILE.workHistory[0], { ...PROFILE.workHistory[1], startDate: '2018-06' }],
+    };
+    expect((await service.get('u1', jobId)).checks.map((c) => c.message)).not.toContain('Add a phone number: Workday asks for one.');
+    const { bytes } = await service.document('u1', jobId, 'workday');
+    const text = (await (await JSZip.loadAsync(bytes)).file('word/document.xml')!.async('string')).replace(/<[^>]+>/g, '\n');
+    expect(text).toContain('WORK EXPERIENCE');
+    expect(text).toContain('+1 416 555 0100');
+    expect(text).toContain('06/2018 - 02/2021');
+    expect(text).toContain('Backend engineer focused on payments.'); // the accepted tailored summary
   });
 
   it('keeps it to the owner, and refuses unknown suggestions or a second run at once', async () => {

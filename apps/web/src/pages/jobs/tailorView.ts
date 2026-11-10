@@ -18,6 +18,17 @@ export function suggestionLabel(s: Suggestion, roles: DraftView['roles']): strin
   }
 }
 
+/** Whether a job applies through Workday (its links are on a Workday site). */
+export function isWorkdayJob(job: { url: string | null; applyUrl?: string | null; details?: { applyUrl: string | null } | null }): boolean {
+  return [job.url, job.applyUrl, job.details?.applyUrl].some((u) => {
+    try {
+      return Boolean(u) && /(^|\.)(myworkdayjobs|myworkdaysite|myworkday)\.com$/i.test(new URL(u!).hostname);
+    } catch {
+      return false;
+    }
+  });
+}
+
 /** The text that would go on the resume: the user's edit, or Claude's wording. */
 export const finalText = (s: Suggestion) => s.editedText ?? s.after;
 

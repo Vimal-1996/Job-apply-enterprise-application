@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Param, Patch, Post, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Param, Patch, Post, Query, StreamableFile } from '@nestjs/common';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators';
+import { parseLayout } from '../resume-doc/resume-docx';
 import { attachmentDisposition } from '../resumes/resume-files';
 import { parseDecisions } from './tailoring.schema';
 import { TailoringService } from './tailoring.service';
@@ -39,10 +40,12 @@ export class TailoringController {
     return this.tailoring.decide(user.id, jobId(id), updates);
   }
 
-  /** The tailored resume (.docx) with only the accepted changes. */
+  /** The tailored resume (.docx) with only the accepted changes. `?layout=workday` for Workday's resume autofill. */
   @Get('document')
-  async document(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    const { fileName, bytes } = await this.tailoring.document(user.id, jobId(id));
+  async document(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('layout') layoutParam?: string) {
+    const layout = parseLayout(layoutParam);
+    if (!layout) throw new BadRequestException('layout must be standard or workday');
+    const { fileName, bytes } = await this.tailoring.document(user.id, jobId(id), layout);
     return new StreamableFile(bytes, { type: DOCX, disposition: attachmentDisposition(fileName), length: bytes.length });
   }
 }

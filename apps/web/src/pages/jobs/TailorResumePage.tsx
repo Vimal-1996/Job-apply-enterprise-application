@@ -7,7 +7,8 @@ import { Badge, Spinner } from '../../components/ui';
 import { formatDateTime } from '../admin/format';
 import { POLL_MS } from './JobsPage';
 import { jobTitle } from './jobView';
-import { acceptAllIds, counts, finalText, suggestionLabel } from './tailorView';
+import { ResumeFormat } from './ResumeFormat';
+import { acceptAllIds, counts, finalText, isWorkdayJob, suggestionLabel } from './tailorView';
 
 const message = (e: unknown, fallback: string) => (e instanceof ApiError || e instanceof Error ? e.message : fallback);
 
@@ -31,6 +32,8 @@ export function TailorResumePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmRedo, setConfirmRedo] = useState(false);
+  /** null until the user chooses: then the job's own default (Workday jobs get the Workday layout). */
+  const [workdayChoice, setWorkdayChoice] = useState<boolean | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -75,7 +78,10 @@ export function TailorResumePage() {
   const decide = (updates: Update[]) =>
     act(async () => setDraft(await apiPatch<DraftView>(base, token, { decisions: updates })), 'Could not save your choice.');
 
-  const download = () => act(() => apiDownload(`${base}/document`, token, 'Tailored resume.docx'), 'Could not create the resume.');
+  const workdaySuggested = job ? isWorkdayJob(job) : false;
+  const workday = workdayChoice ?? workdaySuggested;
+  const download = () =>
+    act(() => apiDownload(`${base}/document${workday ? '?layout=workday' : ''}`, token, 'Tailored resume.docx'), 'Could not create the resume.');
 
   if (loadError)
     return (
@@ -189,10 +195,11 @@ export function TailorResumePage() {
             )}
             {draft.profileChanged && (
               <p role="status" className="notice">
-                Your profile changed after these suggestions were made, and the resume is built from your profile as it was then. Get new
-                suggestions to use your latest profile.
+                Your profile changed after these suggestions were made. Fixes to dates, locations and contact details are included; get new
+                suggestions if you changed your experience or skills.
               </p>
             )}
+            <ResumeFormat workday={workday} onChange={setWorkdayChoice} checks={draft.checks} suggested={workdaySuggested} />
           </div>
 
           {draft.suggestions.map((s) => (

@@ -13,7 +13,8 @@ import { JobsService } from '../jobs/jobs.service';
 import { ProfileService } from '../profile/profile.service';
 import { DraftRow, DraftStatus, DraftStore } from './draft-store';
 import { RESUME_TAILOR, ResumeTailor, TailorError, TailorInput } from './resume-tailor';
-import { buildResumeDocx, resumeFileName } from './resume-docx';
+import { buildResumeDocx, refreshFacts, resumeChecks, ResumeCheck, resumeFileName, ResumeLayout } from '../resume-doc/resume-docx';
+import { CandidateProfile } from '../profile/profile.schema';
 import { applySuggestions, DecisionUpdate, Suggestion, TAILORING_LIMITS, tidySuggestions } from './tailoring.schema';
 
 export const DRAFT_STORE = Symbol('DRAFT_STORE');
@@ -28,8 +29,10 @@ export interface DraftView {
   roles: { title: string; company: string }[];
   error: string | null;
   suggestedAt: string | null;
-  /** The profile changed after the suggestions were made: the resume is built from the older copy. */
+  /** The profile changed after the suggestions were made (factual fixes still reach the resume). */
   profileChanged: boolean;
+  /** What the resume is missing that Workday and other ATS ask for (fix on the Profile page). */
+  checks: ResumeCheck[];
   aiEnabled: boolean;
 }
 
@@ -107,13 +110,23 @@ export class TailoringService {
     return this.get(userId, jobId);
   }
 
-  /** The tailored resume as a Word file: the base profile plus the accepted suggestions. */
-  async document(userId: string, jobId: string): Promise<{ fileName: string; bytes: Buffer }> {
+  /** The tailored resume as a Word file, in the chosen layout. */
+  async document(userId: string, jobId: string, layout: ResumeLayout = 'standard'): Promise<{ fileName: string; bytes: Buffer }> {
     const job = await this.jobs.get(userId, jobId);
     const draft = await this.store.get(userId, jobId);
     if (!draft?.baseProfile || !draft.suggestions) throw new ConflictException('Get suggestions for this job first');
-    const profile = applySuggestions(draft.baseProfile, draft.suggestions);
-    return { fileName: resumeFileName(profile.fullName, job.company), bytes: await buildResumeDocx(profile) };
+    const profile = await this.finalProfile(userId, draft.baseProfile, draft.suggestions);
+    return { fileName: resumeFileName(profile.fullName, job.company), bytes: await buildResumeDocx(profile, layout) };
+  }
+
+  /**
+   * What goes on the tailored resume: the profile the suggestions were made
+   * against, with the accepted ones applied, and factual details (dates,
+   * locations, contact) from the current profile so fixes made since then count.
+   */
+  private async finalProfile(userId: string, base: CandidateProfile, suggestions: Suggestion[]): Promise<CandidateProfile> {
+    const { profile: current } = await this.profiles.get(userId);
+    return refreshFacts(applySuggestions(base, suggestions), current);
   }
 
   /** Resolves when every run in this process has finished. For tests. */
@@ -123,7 +136,7 @@ export class TailoringService {
 
   private async view(userId: string, row: DraftRow | null): Promise<DraftView> {
     const aiEnabled = Boolean(this.tailor);
-    if (!row) return { status: 'none', suggestions: [], roles: [], error: null, suggestedAt: null, profileChanged: false, aiEnabled };
+    if (!row) return { status: 'none', suggestions: [], roles: [], error: null, suggestedAt: null, profileChanged: false, checks: [], aiEnabled };
     const stale = row.status === 'suggesting' && Date.now() - row.updatedAt.getTime() > TAILOR_TIMEOUT_MS;
     let profileChanged = false;
     if (row.suggestedAt) {
@@ -137,6 +150,7 @@ export class TailoringService {
       error: stale ? 'Making suggestions took too long. Please try again.' : row.error,
       suggestedAt: row.suggestedAt?.toISOString() ?? null,
       profileChanged,
+      checks: row.baseProfile ? resumeChecks(await this.finalProfile(userId, row.baseProfile, row.suggestions ?? [])) : [],
       aiEnabled,
     };
   }
