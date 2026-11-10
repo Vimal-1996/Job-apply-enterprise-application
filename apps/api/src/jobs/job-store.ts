@@ -4,6 +4,13 @@ import { JobDetails, JobMatch } from './job.schema';
 
 export type JobRowSource = JobSource | 'pasted';
 export type MatchStatus = 'matching' | 'ready' | 'failed';
+export const APPLICATION_STATUSES = ['saved', 'applied', 'interviewing', 'offer', 'rejected', 'withdrawn'] as const;
+export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
+
+export interface ApplicationEvent {
+  status: ApplicationStatus;
+  at: Date;
+}
 
 export interface JobRow {
   id: string;
@@ -18,6 +25,9 @@ export interface JobRow {
   match: JobMatch | null;
   matchError: string | null;
   matchedAt: Date | null;
+  applicationStatus: ApplicationStatus;
+  notes: string | null;
+  statusChangedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -33,7 +43,7 @@ export interface NewJob {
 }
 
 const COLUMNS =
-  'id, user_id, source, external_id, url, description, details, match_status, run_id, match, match_error, matched_at, created_at, updated_at';
+  'id, user_id, source, external_id, url, description, details, match_status, run_id, match, match_error, matched_at, application_status, notes, status_changed_at, created_at, updated_at';
 
 const date = (v: unknown) => (v ? new Date(v as string) : null);
 const json = (v: unknown) => (typeof v === 'string' ? JSON.parse(v) : (v ?? null));
@@ -52,6 +62,9 @@ function toRow(r: Record<string, any>): JobRow {
     match: json(r.match),
     matchError: r.match_error,
     matchedAt: date(r.matched_at),
+    applicationStatus: r.application_status,
+    notes: r.notes,
+    statusChangedAt: date(r.status_changed_at),
     createdAt: new Date(r.created_at),
     updatedAt: new Date(r.updated_at),
   };
@@ -127,6 +140,56 @@ export class JobStore {
       `UPDATE job SET match_status = 'failed', match_error = $4, run_id = NULL, updated_at = now() WHERE user_id = $1 AND id = $2 AND run_id = $3`,
       [userId, id, runId, error],
     );
+  }
+
+  /**
+   * Updates where the user is with this job. A status change is also logged
+   * for the timeline (unless the status is unchanged). False if there was no such job.
+   */
+  async updateApplication(
+    userId: string,
+    id: string,
+    eventId: string,
+    patch: { status?: ApplicationStatus; notes?: string | null },
+  ): Promise<boolean> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rowCount: exists } = await client.query('SELECT 1 FROM job WHERE user_id = $1 AND id = $2', [userId, id]);
+      if (!exists) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+      if (patch.status !== undefined) {
+        // Only an actual change counts; checked in the update itself, so two requests at once log it once.
+        const { rowCount } = await client.query(
+          'UPDATE job SET application_status = $3, status_changed_at = now() WHERE user_id = $1 AND id = $2 AND application_status <> $3',
+          [userId, id, patch.status],
+        );
+        if (rowCount === 1) {
+          await client.query('INSERT INTO application_event (id, job_id, user_id, status) VALUES ($1, $2, $3, $4)', [eventId, id, userId, patch.status]);
+        }
+      }
+      if (patch.notes !== undefined) {
+        await client.query('UPDATE job SET notes = $3 WHERE user_id = $1 AND id = $2', [userId, id, patch.notes]);
+      }
+      await client.query('COMMIT');
+      return true;
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** The job's status changes, oldest first. */
+  async events(userId: string, id: string): Promise<ApplicationEvent[]> {
+    const { rows } = await this.pool.query(
+      'SELECT status, created_at FROM application_event WHERE user_id = $1 AND job_id = $2 ORDER BY created_at, id',
+      [userId, id],
+    );
+    return rows.map((r) => ({ status: r.status, at: new Date(r.created_at) }));
   }
 
   /** False if there was no such job. */

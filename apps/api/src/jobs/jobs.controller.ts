@@ -1,7 +1,7 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators';
-import { JobsService, parseNewJob } from './jobs.service';
+import { JobsService, parseApplicationUpdate, parseNewJob } from './jobs.service';
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -37,6 +37,12 @@ export class JobsController {
   @HttpCode(202)
   rematch(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.jobs.rematch(user.id, jobId(id));
+  }
+
+  /** Where the user is with this job: `{ status?, notes? }`. */
+  @Patch(':id/application')
+  updateApplication(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
+    return this.jobs.updateApplication(user.id, jobId(id), parseApplicationUpdate(body));
   }
 
   @Delete(':id')

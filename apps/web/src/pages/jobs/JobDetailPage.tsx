@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ApiError, apiDelete, apiGet, apiPost } from '../../api/client';
-import type { JobDetails, JobMatch, JobView } from '../../api/types';
-import { Spinner } from '../../components/ui';
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from '../../api/client';
+import type { ApplicationStatus, JobDetails, JobMatch, JobView } from '../../api/types';
+import { Badge, Spinner } from '../../components/ui';
 import { formatDateTime } from '../admin/format';
+import { STATUSES, statusInfo } from './applicationView';
 import { MatchBadge, POLL_MS } from './JobsPage';
 import { jobTitle, safeUrl, sourceLabel } from './jobView';
 
@@ -170,6 +171,8 @@ export function JobDetailPage() {
         ) : null}
       </div>
 
+      <ApplicationCard job={job} token={token} onSaved={setJob} />
+
       <div className="card profile-details">
         <h3 style={{ margin: 0 }}>About the job</h3>
         {job.details ? (
@@ -180,6 +183,85 @@ export function JobDetailPage() {
         <OriginalPosting text={job.description} />
       </div>
     </>
+  );
+}
+
+/** Where the user is with this job: stage, private notes and the timeline of stage changes. */
+function ApplicationCard({ job, token, onSaved }: { job: JobView; token: string | undefined; onSaved: (j: JobView) => void }) {
+  const [notes, setNotes] = useState(job.notes ?? '');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const save = async (update: { status?: ApplicationStatus; notes?: string | null }, done: string) => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const saved = await apiPatch<JobView>(`/jobs/${encodeURIComponent(job.id)}/application`, token, update);
+      onSaved(saved);
+      setNotes(saved.notes ?? '');
+      setNotice({ ok: true, text: done });
+    } catch (e) {
+      setNotice({ ok: false, text: message(e, 'Could not save.') });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const current = statusInfo(job.applicationStatus);
+  const notesChanged = notes.trim() !== (job.notes ?? '');
+
+  return (
+    <div className="card">
+      <div className="row">
+        <h3 style={{ margin: 0 }}>Application</h3>
+        <Badge tone={current.tone} dot>
+          {current.label}
+        </Badge>
+        <span className="spacer" />
+        <label className="row" style={{ gap: 8 }}>
+          <span className="muted">Stage</span>
+          <select
+            className="input"
+            style={{ width: 'auto' }}
+            value={job.applicationStatus}
+            disabled={busy}
+            onChange={(e) => {
+              const status = e.target.value as ApplicationStatus;
+              void save({ status }, `Moved to ${statusInfo(status).label}.`);
+            }}
+          >
+            {STATUSES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <ol className="muted" style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 2 }} aria-label="Timeline">
+        {job.timeline.map((t, i) => (
+          <li key={i}>
+            {statusInfo(t.status).label} · {formatDateTime(t.at)}
+          </li>
+        ))}
+      </ol>
+
+      <label className="field">
+        Notes <span className="hint muted">Only you can see these: contacts, interview dates, what you sent.</span>
+        <textarea className="input" rows={3} value={notes} maxLength={5000} onChange={(e) => setNotes(e.target.value)} />
+      </label>
+      <div className="row" style={{ gap: 8 }}>
+        <button className="btn btn-ghost" disabled={busy || !notesChanged} onClick={() => void save({ notes: notes.trim() || null }, 'Notes saved.')}>
+          {busy && <Spinner small />} Save notes
+        </button>
+        {notice && (
+          <span role={notice.ok ? 'status' : 'alert'} className={notice.ok ? 'notice ok' : 'notice error'}>
+            {notice.text}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 

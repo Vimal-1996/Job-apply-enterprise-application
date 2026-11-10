@@ -6,7 +6,7 @@ import { ProfileService, ProfileView } from '../profile/profile.service';
 import { JobMatcher, matchMessage, MatchError, MatchInput } from './job-matcher';
 import { JobStore } from './job-store';
 import { JobAnalysis, tidyAnalysis } from './job.schema';
-import { JOB_LIMITS, JobsService, MATCH_TIMEOUT_MS, parseNewJob } from './jobs.service';
+import { JOB_LIMITS, JobsService, MATCH_TIMEOUT_MS, NOTES_MAX, parseApplicationUpdate, parseNewJob } from './jobs.service';
 
 afterAll(closeTestPools);
 
@@ -233,5 +233,38 @@ describe('JobsService', () => {
     await service.whenIdle();
     await service.delete('u1', id);
     expect(await service.list('u1')).toEqual([]);
+  });
+
+  it('tracks the application: status changes on a timeline, and private notes', async () => {
+    const { service } = await setup();
+    const { id } = await service.add('u1', { link: null, description: DESCRIPTION });
+    await service.whenIdle();
+    const fresh = await service.get('u1', id);
+    expect(fresh).toMatchObject({ applicationStatus: 'saved', statusChangedAt: null, notes: null });
+    expect(fresh.timeline.map((t) => t.status)).toEqual(['saved']);
+
+    await service.updateApplication('u1', id, { status: 'applied', notes: 'Sent the tailored resume' });
+    await service.updateApplication('u1', id, { status: 'applied' }); // no change: not logged twice
+    const view = await service.updateApplication('u1', id, { status: 'interviewing' });
+    expect(view).toMatchObject({ applicationStatus: 'interviewing', notes: 'Sent the tailored resume' });
+    expect(view.statusChangedAt).not.toBeNull();
+    expect(view.timeline.map((t) => t.status)).toEqual(['saved', 'applied', 'interviewing']);
+    expect((await service.list('u1'))[0]).toMatchObject({ applicationStatus: 'interviewing' });
+
+    expect((await service.updateApplication('u1', id, { notes: null })).notes).toBeNull();
+    await expect(service.updateApplication('u2', id, { status: 'offer' })).rejects.toThrow('Job not found');
+    expect((await service.get('u1', id)).applicationStatus).toBe('interviewing');
+  });
+});
+
+describe('parseApplicationUpdate', () => {
+  it('accepts a status and/or notes, and rejects anything else', () => {
+    expect(parseApplicationUpdate({ status: 'offer' })).toEqual({ status: 'offer' });
+    expect(parseApplicationUpdate({ notes: '  Call Tuesday ' })).toEqual({ notes: 'Call Tuesday' });
+    expect(parseApplicationUpdate({ notes: '   ' })).toEqual({ notes: null });
+    expect(() => parseApplicationUpdate({ status: 'hired' })).toThrow('status must be one of');
+    expect(() => parseApplicationUpdate({ notes: 5 })).toThrow('notes must be text');
+    expect(() => parseApplicationUpdate({ notes: 'x'.repeat(NOTES_MAX + 1) })).toThrow('Keep notes under');
+    expect(() => parseApplicationUpdate({})).toThrow('Send a status or notes');
   });
 });
